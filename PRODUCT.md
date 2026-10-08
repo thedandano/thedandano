@@ -10,7 +10,7 @@ A recruiter or hiring manager decides within 20 seconds that Dan is worth a seco
 
 ## Users
 
-Recruiters and hiring managers screening for AI and backend engineering roles. They arrive from a resume link or a LinkedIn profile, usually on a work laptop with many tabs open, and give the page about 20 seconds. Most are not reading code. They want to know what Dan builds, whether he ships, and how to reach him.
+Recruiters and hiring managers screening for AI and backend engineering roles. They arrive from a resume link or a LinkedIn profile, usually on a work laptop with many tabs open, and give the page about 20 seconds. Most are not reading code. They want to know what Dan builds, whether Dan ships, and how to make contact.
 
 ## Product Purpose
 
@@ -33,7 +33,7 @@ Quiet, precise, checkable. The voice of a well-set one-page resume: short senten
 
 1. **Every line is true and checkable.** Each claim links to the thing it describes. Open work is labeled open. Unmerged work is never implied to be merged.
 2. **Public only.** Private work appears as a count and nothing else. No private repo names, titles, or links.
-3. **The page maintains itself.** Dan changes the page by changing his GitHub profile (pins, links, descriptions), never by editing a file.
+3. **The page maintains itself.** Dan changes the page by changing the GitHub profile (pins, links, descriptions), never by editing a file.
 4. **Text first.** Facts live in real text that can be read aloud, selected, and searched. Pictures only show what text cannot.
 5. **Fail loudly, keep yesterday.** If the daily rebuild cannot get good data, it stops with a clear error and the last good page stays up.
 

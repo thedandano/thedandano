@@ -11,13 +11,16 @@ from build import OutsideItem
 TODAY = date(2026, 10, 8)
 SINCE = date(2025, 10, 8)
 REAL_TEMPLATE = (Path(__file__).parent.parent / "template.md").read_text(encoding="utf-8")
-SUMMARY = "Merged pull requests per week since Sep 2026: callback 5, Solar stack 1, Other 1."
+SUMMARY = "Merged pull requests by week since Sep 2026. Totals: callback 5, Solar stack 1, Other 1."
 
 
 def merged_node(repo: str, merged: str, language: str | None = "Python") -> dict:
     return {
         "mergedAt": f"{merged}T12:00:00Z",
-        "repository": {"name": repo, "primaryLanguage": {"name": language} if language else None},
+        "repository": {
+            "nameWithOwner": repo,
+            "primaryLanguage": {"name": language} if language else None,
+        },
     }
 
 
@@ -31,9 +34,9 @@ def outside_node(title: str, private: bool = False) -> dict:
 
 def merged_nodes() -> list[dict]:
     return [
-        *[merged_node("callback", "2026-09-29") for _ in range(5)],
-        merged_node("enphase-bridge", "2026-10-06", "Rust"),
-        merged_node("side-project", "2026-10-07", None),
+        *[merged_node("thedandano/callback", "2026-09-29") for _ in range(5)],
+        merged_node("thedandano/enphase-bridge", "2026-10-06", "Rust"),
+        merged_node("someone-else/callback", "2026-10-07", None),
     ]
 
 
@@ -51,8 +54,12 @@ def api_data(**overrides: object) -> dict:
     return data | overrides
 
 
-def page(has_next: bool, nodes: list[dict]) -> dict:
-    merged = {"pageInfo": {"hasNextPage": has_next, "endCursor": "next"}, "nodes": nodes}
+def page(has_next: bool, nodes: list[dict], total: int = 2) -> dict:
+    merged = {
+        "issueCount": total,
+        "pageInfo": {"hasNextPage": has_next, "endCursor": "next"},
+        "nodes": nodes,
+    }
     return {"merged": merged}
 
 
@@ -96,7 +103,10 @@ def test_weekly_counts_start_at_the_first_week_with_work():
 
 
 def test_weekly_counts_never_reach_back_past_the_lookback():
-    nodes = [merged_node("callback", "2020-01-01"), merged_node("callback", "2026-10-06")]
+    nodes = [
+        merged_node("thedandano/callback", "2020-01-01"),
+        merged_node("thedandano/callback", "2026-10-06"),
+    ]
 
     weeks = build.weekly_counts(nodes, date(2026, 9, 30), TODAY)
 
@@ -110,7 +120,7 @@ def test_page_values_are_everything_the_template_asks_for():
             "https://github.com/search?q=author%3Athedandano+is%3Apr+is%3Amerged+is%3Apublic"
             "+merged%3A%3E%3D2025-10-08&type=pullrequests"
         ),
-        "languages": "Python",
+        "languages_clause": ", across Python",
         "release_count": "19",
         "latest_release": "v1.8.0",
         "chart_alt": SUMMARY,
@@ -218,16 +228,22 @@ def test_fetch_follows_extra_pages_of_merged_work(monkeypatch):
     assert cursors == [None, "next"]
 
 
-def test_fetch_says_so_when_it_stops_paging_early(monkeypatch, caplog):
-    monkeypatch.setattr(build, "MAX_EXTRA_PAGES", 1)
-    monkeypatch.setattr(build, "graphql", lambda token, variables: page(True, [{}]))
+def test_fetch_says_so_when_github_returns_fewer_than_the_total(monkeypatch, caplog):
+    monkeypatch.setattr(build, "graphql", lambda token, variables: page(False, [{}], total=1500))
 
     with caplog.at_level(logging.WARNING):
         build.fetch("token", SINCE)
 
     assert caplog.messages == [
-        "Stopped after 2 pages of merged pull requests; the chart and the language list "
+        "GitHub returned 1 of 1500 merged pull requests; the chart and the language list "
         "leave out the rest. The total count is still exact."
+    ]
+
+
+def test_languages_clause_disappears_without_languages():
+    assert [build.languages_clause(names) for names in ([], ["Python", "Rust"])] == [
+        "",
+        ", across Python and Rust",
     ]
 
 

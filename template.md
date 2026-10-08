@@ -2,7 +2,7 @@
 
 **Tenacious.** In [callback](https://github.com/thedandano/callback), a test case that had always passed suddenly failed. I re-ran it twice against the old version to prove the cause was the AI model's randomness and not my change. [I wrote it down in the repo.](https://github.com/thedandano/callback/blob/1be24db29568d6c5ed2a65221f0be361abcd1920/CLAUDE.md#L83-L94)
 
-**Action oriented.** [$merged_count merged pull requests]($merged_url) in public repos in the last 12 months, across $languages. [callback](https://github.com/thedandano/callback/releases) has shipped $release_count releases, most recently $latest_release.
+**Action oriented.** [$merged_count merged pull requests]($merged_url) in public repos in the last 12 months$languages_clause. [callback](https://github.com/thedandano/callback/releases) has shipped $release_count releases, most recently $latest_release.
 
 **Pragmatic.** callback [grades resumes with plain rules](https://github.com/thedandano/callback/blob/main/callback/scorer.py), not another AI call, so the same resume always gets the same score. [enphase-bridge](https://github.com/thedandano/enphase-bridge) keeps solar data in one SQLite file and is small enough to run on a Raspberry Pi.
 

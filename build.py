@@ -30,8 +30,10 @@ API_PATH = "/graphql"
 TIMEOUT_SECONDS = 30
 LOOKBACK_DAYS = 365
 ERROR_BODY_PREVIEW_CHARS = 300
-# ponytail: stop after this many extra pages of 100 merged pull requests (1,100 a year).
-MAX_EXTRA_PAGES = 10
+# ponytail: GitHub search hands back at most 1,000 results (10 pages of 100). Past that
+# the chart and language list go short and fetch() says so. Split the search by date
+# range if a year of merged work ever passes 1,000.
+MAX_EXTRA_PAGES = 9
 
 MAX_OUTSIDE_ITEMS = 6
 MAX_TITLE_CHARS = 80
@@ -46,11 +48,11 @@ CHART_PATHS = {"light": "assets/work-light.svg", "dark": "assets/work-dark.svg"}
 OTHER = "Other"
 SERIES = ("callback", "Solar stack", "World Cup Bar", OTHER)
 PROJECT_OF = {
-    "callback": "callback",
-    "enphase-bridge": "Solar stack",
-    "enphase-bridge-dashboard": "Solar stack",
-    "enphase-bridge-plugin": "Solar stack",
-    "world-cup-kickoff-bar": "World Cup Bar",
+    f"{LOGIN}/callback": "callback",
+    f"{LOGIN}/enphase-bridge": "Solar stack",
+    f"{LOGIN}/enphase-bridge-dashboard": "Solar stack",
+    f"{LOGIN}/enphase-bridge-plugin": "Solar stack",
+    f"{LOGIN}/world-cup-kickoff-bar": "World Cup Bar",
 }
 # Series colors passed the dataviz palette validator on GitHub's light and dark
 # backgrounds. "Other" is a neutral gray on purpose. Text uses ink, never a series color.
@@ -98,7 +100,7 @@ query($login: String!, $merged: String!, $outside: String!, $cursor: String) {
   merged: search(query: $merged, type: ISSUE, first: 100, after: $cursor) {
     issueCount
     pageInfo { hasNextPage endCursor }
-    nodes { ... on PullRequest { mergedAt repository { name primaryLanguage { name } } } }
+    nodes { ... on PullRequest { mergedAt repository { nameWithOwner primaryLanguage { name } } } }
   }
   outside: search(query: $outside, type: ISSUE, first: 20) {
     nodes { ... on PullRequest { title url repository { nameWithOwner isPrivate } } }
@@ -159,13 +161,14 @@ def fetch(token: str, since: date) -> dict[str, Any]:
             break
         page = graphql(token, variables | {"cursor": page["pageInfo"]["endCursor"]})["merged"]
         data["merged"]["nodes"] += page["nodes"]
-    else:
-        if page["pageInfo"]["hasNextPage"]:
-            log.warning(
-                "Stopped after %d pages of merged pull requests; the chart and the "
-                "language list leave out the rest. The total count is still exact.",
-                MAX_EXTRA_PAGES + 1,
-            )
+    collected = len(data["merged"]["nodes"])
+    if collected < data["merged"]["issueCount"]:
+        log.warning(
+            "GitHub returned %d of %d merged pull requests; the chart and the language "
+            "list leave out the rest. The total count is still exact.",
+            collected,
+            data["merged"]["issueCount"],
+        )
     return data
 
 
@@ -188,6 +191,11 @@ def languages(nodes: list[dict[str, Any]]) -> list[str]:
         if node and node["repository"]["primaryLanguage"]
     ]
     return [name for name, count in Counter(names).most_common() if count >= MIN_LANGUAGE_PULLS]
+
+
+def languages_clause(names: list[str]) -> str:
+    """ ", across X, Y, and Z" for the sentence in template.md, or nothing without names."""
+    return f", across {word_list(names)}" if names else ""
 
 
 def word_list(words: list[str]) -> str:
@@ -254,7 +262,7 @@ def weekly_counts(
             continue
         week = week_start(datetime.fromisoformat(node["mergedAt"]).date())
         if week in weeks:
-            weeks[week][PROJECT_OF.get(node["repository"]["name"], OTHER)] += 1
+            weeks[week][PROJECT_OF.get(node["repository"]["nameWithOwner"], OTHER)] += 1
     return weeks
 
 
@@ -268,7 +276,7 @@ def chart_summary(weeks: dict[date, Counter[str]]) -> str:
     """The chart's numbers as a sentence, so nobody has to read them off the picture."""
     parts = [f"{name} {count}" for name, count in project_totals(weeks)]
     since = next(iter(weeks))
-    return f"Merged pull requests per week since {since:%b %Y}: {', '.join(parts)}."
+    return f"Merged pull requests by week since {since:%b %Y}. Totals: {', '.join(parts)}."
 
 
 def bar_step(week_count: int) -> int:
@@ -387,7 +395,7 @@ def page_values(data: dict[str, Any], today: date) -> dict[str, str]:
         "merged_url": (
             f"https://github.com/search?q={quote_plus(merged_query(since))}&type=pullrequests"
         ),
-        "languages": word_list(languages(merged["nodes"])),
+        "languages_clause": languages_clause(languages(merged["nodes"])),
         "release_count": str(callback["releases"]["totalCount"]),
         "latest_release": callback["latestRelease"]["tagName"],
         "chart_alt": escape(summary),

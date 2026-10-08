@@ -31,9 +31,9 @@ Tenacious, action oriented, pragmatic. Bold in what it claims, quiet in how it l
 
 ## Design Principles
 
-1. **Every line is true and checkable.** Each claim links to the thing it describes. Only merged work counts as evidence.
-2. **Public only.** Private work appears as a count and nothing else. No private repo names, titles, or links.
-3. **The page maintains itself.** Dan changes the page by changing the GitHub profile (pins, links, descriptions), never by editing a file.
+1. **Every line is true and checkable.** Each claim links to the thing it describes. Only merged or landed work counts as evidence.
+2. **Public only.** No private repo names, titles, or links. Volunteer work in a private repo is described in a sentence, with a link to the public site only.
+3. **The page maintains itself.** Numbers, the chart, and the contact link update daily. The wording lives in one file, `template.md`, and changes only when Dan wants to say something new.
 4. **Text first.** Facts live in real text that can be read aloud, selected, and searched. Pictures only show what text cannot.
 5. **Fail loudly, keep yesterday.** If the daily rebuild cannot get good data, it stops with a clear error and the last good page stays up.
 

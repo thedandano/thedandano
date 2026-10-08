@@ -1,7 +1,7 @@
-"""Rebuild the profile README from live GitHub data.
+"""Rebuild the profile README and its chart from live GitHub data.
 
-The README says who Dan is in three claims, each backed by merged work that a
-reader can click. It repeats nothing GitHub's profile page already shows.
+The wording lives in template.md. This script fills in the live numbers,
+draws the "where the work went" chart, and writes README.md.
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ from __future__ import annotations
 import http.client
 import json
 import logging
+import math
 import os
 import re
 from collections import Counter
@@ -17,35 +18,76 @@ from datetime import UTC, date, datetime, timedelta
 from html import escape
 from http import HTTPStatus
 from pathlib import Path
+from string import Template
 from typing import Any
 from urllib.parse import quote_plus
 
 LOGIN = "thedandano"
-HEADLINE = "I don't let go of a problem, I ship, and I keep it simple."
 CALLBACK_URL = f"https://github.com/{LOGIN}/callback"
-# Pinned to one commit so the line numbers keep pointing at the same write-up.
-VARIANCE_WRITEUP_URL = (
-    f"{CALLBACK_URL}/blob/1be24db29568d6c5ed2a65221f0be361abcd1920/CLAUDE.md#L83-L94"
-)
-SCORER_URL = f"{CALLBACK_URL}/blob/main/callback/scorer.py"
-ENPHASE_BRIDGE_URL = f"https://github.com/{LOGIN}/enphase-bridge"
 
 API_HOST = "api.github.com"
 API_PATH = "/graphql"
 TIMEOUT_SECONDS = 30
 LOOKBACK_DAYS = 365
 ERROR_BODY_PREVIEW_CHARS = 300
+# ponytail: stop after this many extra pages of 100 merged pull requests (1,100 a year).
+MAX_EXTRA_PAGES = 10
 
 MAX_OUTSIDE_ITEMS = 6
 MAX_TITLE_CHARS = 80
 PAIR = 2  # two words join with "and" alone; three or more need commas
-README_PATH = "README.md"
+MIN_LANGUAGE_PULLS = 5  # a language is named only with this many merged pull requests
 
-# ponytail: languages come from the 100 most recently updated merged pull requests,
-# no paging. The total count is exact either way. Add paging if the language list
-# ever looks wrong.
+TEMPLATE_PATH = "template.md"
+README_PATH = "README.md"
+CHART_PATHS = {"light": "assets/work-light.svg", "dark": "assets/work-dark.svg"}
+
+# Chart series, in fixed order. Repos not listed here count as "Other".
+OTHER = "Other"
+SERIES = ("callback", "Solar stack", "World Cup Bar", OTHER)
+PROJECT_OF = {
+    "callback": "callback",
+    "enphase-bridge": "Solar stack",
+    "enphase-bridge-dashboard": "Solar stack",
+    "enphase-bridge-plugin": "Solar stack",
+    "world-cup-kickoff-bar": "World Cup Bar",
+}
+# Series colors passed the dataviz palette validator on GitHub's light and dark
+# backgrounds. "Other" is a neutral gray on purpose. Text uses ink, never a series color.
+CHART_COLORS = {
+    "light": {
+        "series": ("#2a78d6", "#eb6834", "#1baf7a", "#8c959f"),
+        "ink": "#59636e",
+        "grid": "#d1d9e0",
+    },
+    "dark": {
+        "series": ("#3987e5", "#d95926", "#199e70", "#6e7681"),
+        "ink": "#9198a1",
+        "grid": "#3d444d",
+    },
+}
+
+CHART_WIDTH = 713
+MAX_BAR_STEP = 20
+BAR_GAP = 4
+RIGHT_PADDING = 20
+SEGMENT_GAP = 1
+BAR_RADIUS = 1
+AXIS_WIDTH = 24
+PLOT_TOP = 8
+PLOT_HEIGHT = 96
+MONTH_ROW_HEIGHT = 18
+LEGEND_ROW_HEIGHT = 22
+SWATCH_SIZE = 10
+LEGEND_CHAR_WIDTH = 6
+LEGEND_ITEM_PADDING = 30
+TICK_ROUNDING = 10
+LABEL_OFFSET = 4
+DAYS_PER_WEEK = 7
+FONT_STACK = "-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
+
 QUERY = """
-query($login: String!, $merged: String!, $outside: String!) {
+query($login: String!, $merged: String!, $outside: String!, $cursor: String) {
   user(login: $login) {
     socialAccounts(first: 10) { nodes { provider url } }
   }
@@ -53,9 +95,10 @@ query($login: String!, $merged: String!, $outside: String!) {
     releases { totalCount }
     latestRelease { tagName }
   }
-  merged: search(query: $merged, type: ISSUE, first: 100) {
+  merged: search(query: $merged, type: ISSUE, first: 100, after: $cursor) {
     issueCount
-    nodes { ... on PullRequest { repository { primaryLanguage { name } } } }
+    pageInfo { hasNextPage endCursor }
+    nodes { ... on PullRequest { mergedAt repository { name primaryLanguage { name } } } }
   }
   outside: search(query: $outside, type: ISSUE, first: 20) {
     nodes { ... on PullRequest { title url repository { nameWithOwner isPrivate } } }
@@ -78,14 +121,8 @@ def merged_query(since: date) -> str:
     return f"author:{LOGIN} is:pr is:merged is:public merged:>={since.isoformat()}"
 
 
-def fetch(token: str, since: date) -> dict[str, Any]:
-    """Run the one GraphQL query the page needs and return its data."""
-    merged = merged_query(since)
-    variables = {
-        "login": LOGIN,
-        "merged": f"{merged} sort:updated-desc",
-        "outside": f"{merged} -user:{LOGIN} sort:updated-desc",
-    }
+def graphql(token: str, variables: dict[str, Any]) -> dict[str, Any]:
+    """Send the page's one query to GitHub and return its data."""
     payload = json.dumps({"query": QUERY, "variables": variables})
     headers = {"Authorization": f"Bearer {token}", "User-Agent": LOGIN}
     connection = http.client.HTTPSConnection(API_HOST, timeout=TIMEOUT_SECONDS)
@@ -106,6 +143,32 @@ def fetch(token: str, since: date) -> dict[str, Any]:
     return body["data"]
 
 
+def fetch(token: str, since: date) -> dict[str, Any]:
+    """Fetch everything the page needs, following extra pages of merged pull requests."""
+    merged = merged_query(since)
+    variables = {
+        "login": LOGIN,
+        "merged": f"{merged} sort:updated-desc",
+        "outside": f"{merged} -user:{LOGIN} sort:updated-desc",
+        "cursor": None,
+    }
+    data = graphql(token, variables)
+    page = data["merged"]
+    for _ in range(MAX_EXTRA_PAGES):
+        if not page["pageInfo"]["hasNextPage"]:
+            break
+        page = graphql(token, variables | {"cursor": page["pageInfo"]["endCursor"]})["merged"]
+        data["merged"]["nodes"] += page["nodes"]
+    else:
+        if page["pageInfo"]["hasNextPage"]:
+            log.warning(
+                "Stopped after %d pages of merged pull requests; the chart and the "
+                "language list leave out the rest. The total count is still exact.",
+                MAX_EXTRA_PAGES + 1,
+            )
+    return data
+
+
 def outside_work(nodes: list[dict[str, Any]]) -> list[OutsideItem]:
     """Merged pull requests in other people's public repos, newest first."""
     return [
@@ -124,7 +187,7 @@ def languages(nodes: list[dict[str, Any]]) -> list[str]:
         for node in nodes
         if node and node["repository"]["primaryLanguage"]
     ]
-    return [name for name, _ in Counter(names).most_common()]
+    return [name for name, count in Counter(names).most_common() if count >= MIN_LANGUAGE_PULLS]
 
 
 def word_list(words: list[str]) -> str:
@@ -158,50 +221,197 @@ def contact_link(user: dict[str, Any]) -> str:
     return ""
 
 
-def outside_row(item: OutsideItem) -> str:
-    return f"- [{md_text(shorten(item.title))}]({item.url}) · {item.project} · merged"
-
-
-def claims(data: dict[str, Any], since: date) -> list[str]:
-    """The three claims about Dan, each with a link to merged work that backs it."""
-    callback = data["callback"]
-    if callback is None or callback["latestRelease"] is None:
-        raise RuntimeError(f"Could not read releases for {CALLBACK_URL}; was the repo renamed?")
-    merged = data["merged"]
-    search_url = f"https://github.com/search?q={quote_plus(merged_query(since))}&type=pullrequests"
-    across = word_list(languages(merged["nodes"]))
-    return [
-        f"**Tenacious.** In [callback]({CALLBACK_URL}), a test case that had always passed "
-        "suddenly failed. I re-ran it twice against the old version to prove the cause was "
-        f"the AI model's randomness and not my change. [I wrote it down in the repo.]"
-        f"({VARIANCE_WRITEUP_URL})",
-        f"**Action oriented.** [{merged['issueCount']:,} merged pull requests]({search_url}) "
-        f"in public repos in the last 12 months, across {across}. "
-        f"[callback]({CALLBACK_URL}/releases) has shipped "
-        f"{callback['releases']['totalCount']} releases, most recently "
-        f"{callback['latestRelease']['tagName']}.",
-        f"**Pragmatic.** callback [grades resumes with plain rules]({SCORER_URL}), not another "
-        "AI call, so the same resume always gets the same score. "
-        f"[enphase-bridge]({ENPHASE_BRIDGE_URL}) keeps solar data in one SQLite file and "
-        "is small enough to run on a Raspberry Pi.",
+def outside_section(items: list[OutsideItem]) -> str:
+    """A list of merged outside work, or nothing when there is none."""
+    if not items:
+        return ""
+    rows = [
+        f"- [{md_text(shorten(item.title))}]({item.url}) · {item.project} · merged"
+        for item in items
     ]
+    return "## Merged in other projects\n\n" + "\n".join(rows)
 
 
-def build(data: dict[str, Any], today: date) -> str:
-    """Turn API data into the README text. No I/O."""
+def week_start(day: date) -> date:
+    return day - timedelta(days=day.weekday())
+
+
+def weekly_counts(
+    nodes: list[dict[str, Any]], since: date, today: date
+) -> dict[date, Counter[str]]:
+    """Merged pull requests per week (Monday start) and project, oldest week first.
+
+    Starts at the first week with merged work, so the chart has no empty lead-in.
+    """
+    merged_days = [datetime.fromisoformat(node["mergedAt"]).date() for node in nodes if node]
+    first = week_start(max(min(merged_days, default=today), since))
+    week_count = (week_start(today) - first).days // DAYS_PER_WEEK + 1
+    weeks: dict[date, Counter[str]] = {
+        first + timedelta(weeks=index): Counter() for index in range(week_count)
+    }
+    for node in nodes:
+        if not node:
+            continue
+        week = week_start(datetime.fromisoformat(node["mergedAt"]).date())
+        if week in weeks:
+            weeks[week][PROJECT_OF.get(node["repository"]["name"], OTHER)] += 1
+    return weeks
+
+
+def project_totals(weeks: dict[date, Counter[str]]) -> list[tuple[str, int]]:
+    """Total per series, in series order, leaving out series with no work."""
+    totals = sum(weeks.values(), Counter())
+    return [(name, totals[name]) for name in SERIES if totals[name]]
+
+
+def chart_summary(weeks: dict[date, Counter[str]]) -> str:
+    """The chart's numbers as a sentence, so nobody has to read them off the picture."""
+    parts = [f"{name} {count}" for name, count in project_totals(weeks)]
+    since = next(iter(weeks))
+    return f"Merged pull requests per week since {since:%b %Y}: {', '.join(parts)}."
+
+
+def bar_step(week_count: int) -> int:
+    """Width of one week's slot: as wide as fits, up to a cap."""
+    return min((CHART_WIDTH - AXIS_WIDTH - RIGHT_PADDING) // max(week_count, 1), MAX_BAR_STEP)
+
+
+def axis_top(weeks: dict[date, Counter[str]]) -> int:
+    """Top of the y-axis: the busiest week, rounded up to a round number."""
+    peak = max((sum(counts.values()) for counts in weeks.values()), default=0)
+    return max(math.ceil(peak / TICK_ROUNDING), 1) * TICK_ROUNDING
+
+
+def grid_lines(top: int, colors: dict[str, Any]) -> list[str]:
+    """Faint lines and labels at the top and middle of the y-axis, plus the baseline."""
+    lines = []
+    for value in (top, top // 2, 0):
+        y = PLOT_TOP + PLOT_HEIGHT - value * PLOT_HEIGHT / top
+        lines.append(
+            f'<line x1="{AXIS_WIDTH}" y1="{y:g}" x2="{CHART_WIDTH}" y2="{y:g}" '
+            f'stroke="{colors["grid"]}" stroke-width="1"/>'
+        )
+        lines.append(
+            f'<text x="{AXIS_WIDTH - LABEL_OFFSET}" y="{y + LABEL_OFFSET:g}" '
+            f'text-anchor="end" fill="{colors["ink"]}">{value}</text>'
+        )
+    return lines
+
+
+def bars(weeks: dict[date, Counter[str]], top: int, colors: dict[str, Any]) -> list[str]:
+    """One stacked bar per week, with a thin gap between projects."""
+    rects = []
+    unit = PLOT_HEIGHT / top
+    step = bar_step(len(weeks))
+    for column, counts in enumerate(weeks.values()):
+        y = PLOT_TOP + PLOT_HEIGHT
+        for name, fill in zip(SERIES, colors["series"], strict=True):
+            height = counts[name] * unit
+            if not height:
+                continue
+            y -= height
+            rects.append(
+                f'<rect x="{AXIS_WIDTH + column * step}" y="{y:g}" width="{step - BAR_GAP}" '
+                f'height="{max(height - SEGMENT_GAP, 1):g}" rx="{BAR_RADIUS}" fill="{fill}"/>'
+            )
+    return rects
+
+
+def month_labels(weeks: dict[date, Counter[str]], colors: dict[str, Any]) -> list[str]:
+    """A month name under the first week of each new month."""
+    labels = []
+    previous_month = None
+    y = PLOT_TOP + PLOT_HEIGHT + MONTH_ROW_HEIGHT - LABEL_OFFSET
+    for column, week in enumerate(weeks):
+        if previous_month is not None and week.month != previous_month:
+            x = AXIS_WIDTH + column * bar_step(len(weeks))
+            labels.append(f'<text x="{x}" y="{y}" fill="{colors["ink"]}">{week:%b}</text>')
+        previous_month = week.month
+    return labels
+
+
+def legend(weeks: dict[date, Counter[str]], colors: dict[str, Any]) -> list[str]:
+    """A swatch and a name for each project that has work in the chart."""
+    items = []
+    x = AXIS_WIDTH
+    y = PLOT_TOP + PLOT_HEIGHT + MONTH_ROW_HEIGHT + LABEL_OFFSET
+    shown = {name for name, _ in project_totals(weeks)}
+    for name, fill in zip(SERIES, colors["series"], strict=True):
+        if name not in shown:
+            continue
+        items.append(
+            f'<rect x="{x}" y="{y}" width="{SWATCH_SIZE}" height="{SWATCH_SIZE}" '
+            f'rx="{BAR_RADIUS}" fill="{fill}"/>'
+        )
+        items.append(
+            f'<text x="{x + SWATCH_SIZE + LABEL_OFFSET}" y="{y + SWATCH_SIZE - 1}" '
+            f'fill="{colors["ink"]}">{escape(name)}</text>'
+        )
+        x += len(name) * LEGEND_CHAR_WIDTH + LEGEND_ITEM_PADDING
+    return items
+
+
+def render_chart(weeks: dict[date, Counter[str]], theme: str) -> str:
+    """Draw merged pull requests per week by project as an SVG with no background."""
+    colors = CHART_COLORS[theme]
+    top = axis_top(weeks)
+    width = CHART_WIDTH
+    height = PLOT_TOP + PLOT_HEIGHT + MONTH_ROW_HEIGHT + LEGEND_ROW_HEIGHT
+    lines = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}" role="img" font-family="{FONT_STACK}" font-size="10">',
+        f"<title>{escape(chart_summary(weeks))}</title>",
+        *grid_lines(top, colors),
+        *bars(weeks, top, colors),
+        *month_labels(weeks, colors),
+        *legend(weeks, colors),
+        "</svg>",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def page_values(data: dict[str, Any], today: date) -> dict[str, str]:
+    """Every value template.md asks for. No I/O."""
     user = data["user"]
     if user is None:
         raise RuntimeError(f"GitHub has no user named {LOGIN!r}.")
+    callback = data["callback"]
+    if callback is None or callback["latestRelease"] is None:
+        raise RuntimeError(f"Could not read releases for {CALLBACK_URL}; was the repo renamed?")
     since = today - timedelta(days=LOOKBACK_DAYS)
-    parts = [f"# {HEADLINE}", *claims(data, since), contact_link(user)]
-    outside = outside_work(data["outside"]["nodes"])
-    if outside:
-        parts += ["## Merged in other projects", "\n".join(outside_row(item) for item in outside)]
-    parts.append(
-        f"<sub>Rebuilt daily by [a script in this repo](build.py). "
-        f"Last run {short_date(today)}.</sub>"
-    )
-    return "\n\n".join(part for part in parts if part) + "\n"
+    merged = data["merged"]
+    weeks = weekly_counts(merged["nodes"], since, today)
+    summary = chart_summary(weeks)
+    return {
+        "merged_count": f"{merged['issueCount']:,}",
+        "merged_url": (
+            f"https://github.com/search?q={quote_plus(merged_query(since))}&type=pullrequests"
+        ),
+        "languages": word_list(languages(merged["nodes"])),
+        "release_count": str(callback["releases"]["totalCount"]),
+        "latest_release": callback["latestRelease"]["tagName"],
+        "chart_alt": escape(summary),
+        "chart_width": str(CHART_WIDTH),
+        "chart_summary": summary,
+        "contact": contact_link(user),
+        "outside_section": outside_section(outside_work(data["outside"]["nodes"])),
+        "today": short_date(today),
+    }
+
+
+def build(data: dict[str, Any], today: date, template: str) -> dict[str, str]:
+    """Turn API data and the template into the files to write, keyed by path. No I/O."""
+    try:
+        page = Template(template).substitute(page_values(data, today))
+    except KeyError as error:
+        raise RuntimeError(
+            f"{TEMPLATE_PATH} asks for {error}, which build.py does not provide."
+        ) from error
+    files = {README_PATH: re.sub(r"\n{3,}", "\n\n", page)}
+    weeks = weekly_counts(data["merged"]["nodes"], today - timedelta(days=LOOKBACK_DAYS), today)
+    for theme, path in CHART_PATHS.items():
+        files[path] = render_chart(weeks, theme)
+    return files
 
 
 def main(root: Path) -> None:
@@ -210,9 +420,13 @@ def main(root: Path) -> None:
     if not token:
         raise SystemExit("GITHUB_TOKEN is not set. Export a GitHub token and run again.")
     today = datetime.now(UTC).date()
-    readme = build(fetch(token, today - timedelta(days=LOOKBACK_DAYS)), today)
-    (root / README_PATH).write_text(readme, encoding="utf-8")
-    log.info("Wrote %s", README_PATH)
+    template = (root / TEMPLATE_PATH).read_text(encoding="utf-8")
+    data = fetch(token, today - timedelta(days=LOOKBACK_DAYS))
+    for path, content in build(data, today, template).items():
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        log.info("Wrote %s", path)
 
 
 if __name__ == "__main__":

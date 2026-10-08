@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
-    paths-ignore: [README.md]
+    paths-ignore: [README.md, "assets/**"]
 
 permissions:
   contents: read

@@ -10,7 +10,7 @@ A recruiter or hiring manager decides within 20 seconds that Dan is worth a seco
 
 ## Users
 
-Recruiters and hiring managers screening for AI and backend engineering roles. They arrive from a resume link or a LinkedIn profile, usually on a work laptop with many tabs open, and give the page about 20 seconds. Most are not reading code. They want to know what Dan builds, whether he ships, and how to reach him.
+Recruiters and hiring managers screening for AI and backend engineering roles. They arrive from a resume link or a LinkedIn profile, usually on a work laptop with many tabs open, and give the page about 20 seconds. Most are not reading code. They want to know what Dan builds, whether Dan ships, and how to reach him.
 
 ## Product Purpose
 

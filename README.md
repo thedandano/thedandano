@@ -1,23 +1,6 @@
-# Dan Sedano
+AI and backend engineer. I build agent systems and the services behind them, mostly in Python and Rust.
 
-AI and backend engineer in San Diego, CA. I build agent systems and the services behind them, mostly in Python and Rust.
-
-[Message me on LinkedIn](https://linkedin.com/in/sdedano) · [dsedano.dev](https://dsedano.dev)
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/calendar-dark.svg">
-  <img src="assets/calendar-light.svg" alt="Contribution calendar: 2,683 contributions in the last 12 months." width="713">
-</picture>
-
-**2,683** contributions in the last 12 months, counting private work, and **154** public pull requests.
-
-## Featured work
-
-**[enphase-bridge](https://github.com/thedandano/enphase-bridge)** · Rust · updated Oct 6, 2026<br>
-Self-hosted Enphase IQ Gateway bridge — local REST API, SQLite storage, optional Bearer token auth
-
-**[enphase-bridge-dashboard](https://github.com/thedandano/enphase-bridge-dashboard)** · TypeScript · updated Oct 5, 2026<br>
-React + TypeScript dashboard for the enphase-bridge solar energy daemon
+[Message me on LinkedIn](https://linkedin.com/in/sdedano)
 
 ## Open-source work
 

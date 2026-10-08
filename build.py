@@ -1,4 +1,8 @@
-"""Rebuild the profile README and contribution calendar from live GitHub data."""
+"""Rebuild the profile README from live GitHub data.
+
+The README only holds what GitHub's own profile page does not already show:
+a one-line summary, one contact link, and open work in other people's repos.
+"""
 
 from __future__ import annotations
 
@@ -15,8 +19,10 @@ from pathlib import Path
 from typing import Any
 
 LOGIN = "thedandano"
-ROLE = "AI and backend engineer"
-SUMMARY = "I build agent systems and the services behind them, mostly in Python and Rust."
+SUMMARY = (
+    "AI and backend engineer. "
+    "I build agent systems and the services behind them, mostly in Python and Rust."
+)
 
 API_HOST = "api.github.com"
 API_PATH = "/graphql"
@@ -24,59 +30,16 @@ TIMEOUT_SECONDS = 30
 LOOKBACK_DAYS = 365
 ERROR_BODY_PREVIEW_CHARS = 300
 
-MAX_FALLBACK_REPOS = 4
 MAX_OUTSIDE_ITEMS = 6
 MAX_TITLE_CHARS = 80
-# ponytail: one page of 100 results per list, no paging. Add paging if a year of
-# outside work, or the list of public repos, ever passes 100.
-
 README_PATH = "README.md"
-CALENDAR_PATHS = {"light": "assets/calendar-light.svg", "dark": "assets/calendar-dark.svg"}
 
-CELL_SIZE = 10
-CELL_STEP = 13
-CELL_RADIUS = 2
-LABEL_HEIGHT = 16
-LABEL_BASELINE = 10
-LABEL_ROOM = 24
-DAYS_PER_WEEK = 7
-FONT_STACK = "-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
-
-LEVELS = ("NONE", "FIRST_QUARTILE", "SECOND_QUARTILE", "THIRD_QUARTILE", "FOURTH_QUARTILE")
-# Colors come from DESIGN.md: five heat steps and a label color per theme.
-PALETTES = {
-    "light": {
-        "heat": ("#ebe8e2", "#f1d9a8", "#e3b25a", "#c4831a", "#8a5600"),
-        "label": "#6b655a",
-    },
-    "dark": {
-        "heat": ("#1c1f24", "#4a3410", "#80570f", "#b9801c", "#f0b452"),
-        "label": "#9c958a",
-    },
-}
-
+# ponytail: one page of 100 results, no paging. Add paging if a year of outside
+# work ever passes 100 items.
 QUERY = """
 query($login: String!, $outside: String!) {
   user(login: $login) {
-    name
-    location
-    websiteUrl
     socialAccounts(first: 10) { nodes { provider url } }
-    pinnedItems(first: 6, types: REPOSITORY) {
-      nodes { ... on Repository { ...repo } }
-    }
-    repositories(first: 100, ownerAffiliations: OWNER, privacy: PUBLIC, isFork: false,
-                 orderBy: {field: PUSHED_AT, direction: DESC}) {
-      nodes { ...repo }
-    }
-    contributionsCollection {
-      totalPullRequestContributions
-      restrictedContributionsCount
-      contributionCalendar {
-        totalContributions
-        weeks { contributionDays { date contributionLevel } }
-      }
-    }
   }
   search(query: $outside, type: ISSUE, first: 100) {
     nodes {
@@ -86,21 +49,9 @@ query($login: String!, $outside: String!) {
     }
   }
 }
-fragment repo on Repository {
-  name url description isPrivate isArchived pushedAt primaryLanguage { name }
-}
 """
 
 log = logging.getLogger("build")
-
-
-@dataclass(frozen=True)
-class Repo:
-    name: str
-    url: str
-    description: str
-    language: str
-    pushed: date | None
 
 
 @dataclass(frozen=True)
@@ -135,39 +86,6 @@ def fetch(token: str, since: date) -> dict[str, Any]:
     if body.get("errors"):
         raise RuntimeError(f"GitHub API returned errors: {body['errors']}")
     return body["data"]
-
-
-def to_repo(node: dict[str, Any]) -> Repo:
-    return Repo(
-        name=node["name"],
-        url=node["url"],
-        description=node["description"] or "",
-        language=(node["primaryLanguage"] or {}).get("name", ""),
-        pushed=parse_day(node["pushedAt"]) if node["pushedAt"] else None,
-    )
-
-
-def parse_day(timestamp: str) -> date:
-    return datetime.fromisoformat(timestamp).date()
-
-
-def featured_repos(user: dict[str, Any]) -> list[Repo]:
-    """Pinned public repos, or the most recently active described repos if nothing is pinned."""
-    pins = [
-        to_repo(node) for node in user["pinnedItems"]["nodes"] if node and not node["isPrivate"]
-    ]
-    for repo in pins:
-        if not repo.description:
-            log.warning("Pinned repo %s has no description; showing its name only.", repo.name)
-    if pins:
-        return pins
-    log.warning("No public repos are pinned; falling back to the most recently active repos.")
-    recent = [
-        to_repo(node)
-        for node in user["repositories"]["nodes"]
-        if node["description"] and not node["isArchived"] and not node["isPrivate"]
-    ]
-    return recent[:MAX_FALLBACK_REPOS]
 
 
 def item_status(node: dict[str, Any]) -> str | None:
@@ -216,49 +134,14 @@ def short_date(day: date) -> str:
     return f"{day:%b} {day.day}, {day.year}"
 
 
-def with_scheme(url: str) -> str:
-    return url if "://" in url else f"https://{url}"
-
-
-def contact_links(user: dict[str, Any]) -> list[str]:
-    links = []
+def contact_link(user: dict[str, Any]) -> str:
     linkedin = next(
         (a["url"] for a in user["socialAccounts"]["nodes"] if a["provider"] == "LINKEDIN"), None
     )
     if linkedin:
-        links.append(f"[Message me on LinkedIn]({linkedin})")
-    else:
-        log.warning("No LinkedIn account on the GitHub profile; the page has no main contact link.")
-    if user["websiteUrl"]:
-        site = with_scheme(user["websiteUrl"])
-        links.append(f"[{site.split('://', 1)[1].rstrip('/')}]({site})")
-    return links
-
-
-def calendar_alt(user: dict[str, Any]) -> str:
-    total = user["contributionsCollection"]["contributionCalendar"]["totalContributions"]
-    return f"Contribution calendar: {total:,} contributions in the last 12 months."
-
-
-def activity_line(user: dict[str, Any]) -> str:
-    """Contribution total (private work included when visible) and public pull requests."""
-    contributions = user["contributionsCollection"]
-    total = contributions["contributionCalendar"]["totalContributions"]
-    pull_requests = contributions["totalPullRequestContributions"]
-    private_note = (
-        ", counting private work" if contributions["restrictedContributionsCount"] else ""
-    )
-    return (
-        f"**{total:,}** contributions in the last 12 months{private_note}, "
-        f"and **{pull_requests:,}** public pull requests."
-    )
-
-
-def repo_row(repo: Repo) -> str:
-    updated = f"updated {short_date(repo.pushed)}" if repo.pushed else ""
-    facts = [f"**[{repo.name}]({repo.url})**", repo.language, updated]
-    heading = " · ".join(fact for fact in facts if fact)
-    return f"{heading}<br>\n{md_text(repo.description)}" if repo.description else heading
+        return f"[Message me on LinkedIn]({linkedin})"
+    log.warning("No LinkedIn account on the GitHub profile; the page has no contact link.")
+    return ""
 
 
 def outside_row(item: OutsideItem) -> str:
@@ -266,26 +149,8 @@ def outside_row(item: OutsideItem) -> str:
     return f"- [{title}]({item.url}) · {item.project} · {item.kind}, {item.status}"
 
 
-def calendar_width(week_count: int) -> int:
-    return week_count * CELL_STEP + LABEL_ROOM
-
-
 def render_readme(user: dict[str, Any], outside: list[OutsideItem], today: date) -> str:
-    place = f" in {user['location']}" if user["location"] else ""
-    weeks = user["contributionsCollection"]["contributionCalendar"]["weeks"]
-    parts = [
-        f"# {user['name'] or LOGIN}",
-        f"{ROLE}{place}. {SUMMARY}",
-        " · ".join(contact_links(user)),
-        "<picture>\n"
-        f'  <source media="(prefers-color-scheme: dark)" srcset="{CALENDAR_PATHS["dark"]}">\n'
-        f'  <img src="{CALENDAR_PATHS["light"]}" alt="{escape(calendar_alt(user))}" '
-        f'width="{calendar_width(len(weeks))}">\n'
-        "</picture>",
-        activity_line(user),
-        "## Featured work",
-        "\n\n".join(repo_row(repo) for repo in featured_repos(user)),
-    ]
+    parts = [SUMMARY, contact_link(user)]
     if outside:
         parts += ["## Open-source work", "\n".join(outside_row(item) for item in outside)]
     parts.append(
@@ -295,72 +160,24 @@ def render_readme(user: dict[str, Any], outside: list[OutsideItem], today: date)
     return "\n\n".join(part for part in parts if part) + "\n"
 
 
-def month_labels(weeks: list[dict[str, Any]], color: str) -> list[str]:
-    """One label above the first column of each new month."""
-    labels = []
-    previous_month = None
-    for column, week in enumerate(weeks):
-        first_day = date.fromisoformat(week["contributionDays"][0]["date"])
-        if previous_month is not None and first_day.month != previous_month:
-            labels.append(
-                f'<text x="{column * CELL_STEP}" y="{LABEL_BASELINE}" fill="{color}">'
-                f"{first_day:%b}</text>"
-            )
-        previous_month = first_day.month
-    return labels
-
-
-def render_calendar(user: dict[str, Any], theme: str) -> str:
-    """Draw the contribution calendar as an SVG with a transparent background."""
-    palette = PALETTES[theme]
-    weeks = user["contributionsCollection"]["contributionCalendar"]["weeks"]
-    cells = []
-    for column, week in enumerate(weeks):
-        for day in week["contributionDays"]:
-            row = date.fromisoformat(day["date"]).isoweekday() % DAYS_PER_WEEK
-            fill = palette["heat"][LEVELS.index(day["contributionLevel"])]
-            cells.append(
-                f'<rect x="{column * CELL_STEP}" y="{LABEL_HEIGHT + row * CELL_STEP}" '
-                f'width="{CELL_SIZE}" height="{CELL_SIZE}" rx="{CELL_RADIUS}" fill="{fill}"/>'
-            )
-    width = calendar_width(len(weeks))
-    height = LABEL_HEIGHT + DAYS_PER_WEEK * CELL_STEP
-    lines = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
-        f'viewBox="0 0 {width} {height}" role="img" font-family="{FONT_STACK}" font-size="10">',
-        f"<title>{escape(calendar_alt(user))}</title>",
-        *month_labels(weeks, palette["label"]),
-        *cells,
-        "</svg>",
-    ]
-    return "\n".join(lines) + "\n"
-
-
-def build(data: dict[str, Any], today: date) -> dict[str, str]:
-    """Turn API data into the files to write, keyed by path. No I/O."""
+def build(data: dict[str, Any], today: date) -> str:
+    """Turn API data into the README text. No I/O."""
     user = data["user"]
     if user is None:
         raise RuntimeError(f"GitHub has no user named {LOGIN!r}.")
-    files = {README_PATH: render_readme(user, outside_work(data["search"]["nodes"]), today)}
-    for theme, path in CALENDAR_PATHS.items():
-        files[path] = render_calendar(user, theme)
-    return files
+    return render_readme(user, outside_work(data["search"]["nodes"]), today)
 
 
-def main() -> None:
+def main(root: Path) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
         raise SystemExit("GITHUB_TOKEN is not set. Export a GitHub token and run again.")
     today = datetime.now(UTC).date()
-    files = build(fetch(token, today - timedelta(days=LOOKBACK_DAYS)), today)
-    root = Path(__file__).parent
-    for path, content in files.items():
-        target = root / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
-        log.info("Wrote %s", path)
+    readme = build(fetch(token, today - timedelta(days=LOOKBACK_DAYS)), today)
+    (root / README_PATH).write_text(readme, encoding="utf-8")
+    log.info("Wrote %s", README_PATH)
 
 
 if __name__ == "__main__":
-    main()
+    main(Path(__file__).parent)

@@ -20,7 +20,7 @@ The one action: message Dan on LinkedIn.
 
 ## Brand Personality
 
-Quiet, precise, checkable. The voice of a well-set one-page resume: short sentences, plain facts, no selling. Confidence comes from what is left out.
+Tenacious, action oriented, pragmatic. Bold in what it claims, quiet in how it looks. The voice of a well-set one-page resume: short sentences, plain facts, no selling. Confidence comes from what is left out.
 
 ## Anti-references
 
@@ -31,7 +31,7 @@ Quiet, precise, checkable. The voice of a well-set one-page resume: short senten
 
 ## Design Principles
 
-1. **Every line is true and checkable.** Each claim links to the thing it describes. Open work is labeled open. Unmerged work is never implied to be merged.
+1. **Every line is true and checkable.** Each claim links to the thing it describes. Only merged work counts as evidence.
 2. **Public only.** Private work appears as a count and nothing else. No private repo names, titles, or links.
 3. **The page maintains itself.** Dan changes the page by changing the GitHub profile (pins, links, descriptions), never by editing a file.
 4. **Text first.** Facts live in real text that can be read aloud, selected, and searched. Pictures only show what text cannot.

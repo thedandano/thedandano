@@ -11,7 +11,10 @@ from build import OutsideItem
 TODAY = date(2026, 10, 8)
 SINCE = date(2025, 10, 8)
 REAL_TEMPLATE = (Path(__file__).parent.parent / "template.md").read_text(encoding="utf-8")
-SUMMARY = "Merged pull requests by week since Sep 2026. Totals: callback 5, Solar stack 1, Other 1."
+SUMMARY = (
+    "Merged pull requests by week since Sep 2026. Totals, in the order the bars stack "
+    "from the bottom: callback 5, Solar stack 1, Other 1."
+)
 
 
 def merged_node(repo: str, merged: str, language: str | None = "Python") -> dict:
@@ -172,7 +175,7 @@ def test_render_chart_draws_stacked_bars_with_axis_and_legend():
         '<rect x="24" y="56" width="16" height="47" rx="1" fill="#2a78d6"/>\n'
         '<rect x="44" y="94.4" width="16" height="8.6" rx="1" fill="#eb6834"/>\n'
         '<rect x="44" y="84.8" width="16" height="8.6" rx="1" fill="#8c959f"/>\n'
-        '<text x="44" y="118" fill="#59636e">Oct</text>\n'
+        '<text x="24" y="118" fill="#59636e">Sep</text>\n'
         '<rect x="24" y="126" width="10" height="10" rx="1" fill="#2a78d6"/>\n'
         '<text x="38" y="135" fill="#59636e">callback</text>\n'
         '<rect x="102" y="126" width="10" height="10" rx="1" fill="#eb6834"/>\n'
@@ -238,6 +241,27 @@ def test_fetch_says_so_when_github_returns_fewer_than_the_total(monkeypatch, cap
         "GitHub returned 1 of 1500 merged pull requests; the chart and the language list "
         "leave out the rest. The total count is still exact."
     ]
+
+
+def test_month_labels_start_at_the_first_week_and_never_crowd():
+    weeks = {
+        date(2026, 7, 27): Counter(),
+        date(2026, 8, 3): Counter(),
+        date(2026, 8, 10): Counter(),
+        date(2026, 8, 31): Counter(),
+        date(2026, 9, 7): Counter(),
+    }
+
+    assert build.month_labels(weeks, {"ink": "#000"}) == [
+        '<text x="24" y="118" fill="#000">Jul</text>',
+        '<text x="104" y="118" fill="#000">Sep</text>',
+    ]
+
+
+def test_chart_summary_says_so_when_there_is_no_merged_work():
+    weeks = build.weekly_counts([], SINCE, TODAY)
+
+    assert build.chart_summary(weeks) == "No merged pull requests in the last 12 months."
 
 
 def test_languages_clause_disappears_without_languages():

@@ -85,6 +85,7 @@ LEGEND_CHAR_WIDTH = 6
 LEGEND_ITEM_PADDING = 30
 TICK_ROUNDING = 10
 LABEL_OFFSET = 4
+MIN_LABEL_GAP_COLUMNS = 2
 DAYS_PER_WEEK = 7
 FONT_STACK = "-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
 
@@ -275,8 +276,13 @@ def project_totals(weeks: dict[date, Counter[str]]) -> list[tuple[str, int]]:
 def chart_summary(weeks: dict[date, Counter[str]]) -> str:
     """The chart's numbers as a sentence, so nobody has to read them off the picture."""
     parts = [f"{name} {count}" for name, count in project_totals(weeks)]
+    if not parts:
+        return "No merged pull requests in the last 12 months."
     since = next(iter(weeks))
-    return f"Merged pull requests by week since {since:%b %Y}. Totals: {', '.join(parts)}."
+    return (
+        f"Merged pull requests by week since {since:%b %Y}. "
+        f"Totals, in the order the bars stack from the bottom: {', '.join(parts)}."
+    )
 
 
 def bar_step(week_count: int) -> int:
@@ -326,14 +332,19 @@ def bars(weeks: dict[date, Counter[str]], top: int, colors: dict[str, Any]) -> l
 
 
 def month_labels(weeks: dict[date, Counter[str]], colors: dict[str, Any]) -> list[str]:
-    """A month name under the first week of each new month."""
+    """A month name under the first week shown and under each new month after it.
+
+    A new month too close to the previous label is skipped so names never overlap.
+    """
     labels = []
     previous_month = None
+    last_labeled = -MIN_LABEL_GAP_COLUMNS
     y = PLOT_TOP + PLOT_HEIGHT + MONTH_ROW_HEIGHT - LABEL_OFFSET
     for column, week in enumerate(weeks):
-        if previous_month is not None and week.month != previous_month:
+        if week.month != previous_month and column - last_labeled >= MIN_LABEL_GAP_COLUMNS:
             x = AXIS_WIDTH + column * bar_step(len(weeks))
             labels.append(f'<text x="{x}" y="{y}" fill="{colors["ink"]}">{week:%b}</text>')
+            last_labeled = column
         previous_month = week.month
     return labels
 

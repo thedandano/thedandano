@@ -18,10 +18,10 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/work-dark.svg">
-  <img src="assets/work-light.svg" alt="Merged pull requests by week since Feb 2026. Totals: callback 74, Solar stack 40, World Cup Bar 5, Other 5." width="713">
+  <img src="assets/work-light.svg" alt="Merged pull requests by week since Feb 2026. Totals, in the order the bars stack from the bottom: callback 74, Solar stack 40, World Cup Bar 5, Other 5." width="713">
 </picture>
 
-Merged pull requests by week since Feb 2026. Totals: callback 74, Solar stack 40, World Cup Bar 5, Other 5.
+Merged pull requests by week since Feb 2026. Totals, in the order the bars stack from the bottom: callback 74, Solar stack 40, World Cup Bar 5, Other 5.
 
 ## How I work
 

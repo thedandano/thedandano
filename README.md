@@ -23,6 +23,34 @@
 
 Merged pull requests by week since Feb 2026. Totals, in the order the bars stack from the bottom: callback 74, Solar stack 40, World Cup Bar 5, Other 5.
 
+<details>
+<summary>The same numbers as a table</summary>
+
+| Week of | callback | Solar stack | World Cup Bar | Other |
+| --- | ---: | ---: | ---: | ---: |
+| Feb 16, 2026 | 0 | 0 | 0 | 1 |
+| Feb 23, 2026 | 0 | 0 | 0 | 1 |
+| Apr 27, 2026 | 2 | 6 | 0 | 0 |
+| May 4, 2026 | 21 | 0 | 0 | 0 |
+| May 18, 2026 | 5 | 0 | 0 | 0 |
+| Jun 1, 2026 | 0 | 0 | 0 | 1 |
+| Jun 8, 2026 | 4 | 0 | 0 | 0 |
+| Jun 15, 2026 | 0 | 0 | 5 | 0 |
+| Jun 22, 2026 | 3 | 0 | 0 | 0 |
+| Jul 6, 2026 | 3 | 0 | 0 | 0 |
+| Jul 13, 2026 | 1 | 0 | 0 | 0 |
+| Jul 20, 2026 | 0 | 1 | 0 | 0 |
+| Jul 27, 2026 | 1 | 0 | 0 | 0 |
+| Aug 17, 2026 | 4 | 0 | 0 | 0 |
+| Aug 24, 2026 | 2 | 27 | 0 | 0 |
+| Aug 31, 2026 | 4 | 1 | 0 | 1 |
+| Sep 7, 2026 | 2 | 0 | 0 | 0 |
+| Sep 21, 2026 | 17 | 1 | 0 | 0 |
+| Sep 28, 2026 | 5 | 1 | 0 | 0 |
+| Oct 5, 2026 | 0 | 3 | 0 | 1 |
+
+</details>
+
 ## How I work
 
 **Catch it early.** My projects check code on my machine before it leaves, then again on GitHub. See the hooks in [callback](https://github.com/thedandano/callback/blob/main/.pre-commit-config.yaml), [enphase-bridge](https://github.com/thedandano/enphase-bridge/tree/main/.githooks), and [the dashboard](https://github.com/thedandano/enphase-bridge-dashboard/tree/main/.husky).

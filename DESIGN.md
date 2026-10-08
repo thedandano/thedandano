@@ -89,6 +89,7 @@ Flat. No shadows, borders, or cards.
 - **Axis:** three faint grid lines with labels, month names below, legend at the bottom.
 - **Themes:** a light and a dark file, swapped by the reader's GitHub theme.
 - **Alt text and caption:** the same totals the chart shows.
+- **Table view:** a collapsed table under the chart lists every week by project, so the breakdown never depends on color.
 
 ### Merged outside work
 - **Style:** linked title and project name. The section appears only when a pull request in someone else's public GitHub repo has merged.

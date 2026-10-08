@@ -23,6 +23,8 @@
 
 $chart_summary
 
+$chart_table
+
 ## How I work
 
 **Catch it early.** My projects check code on my machine before it leaves, then again on GitHub. See the hooks in [callback](https://github.com/thedandano/callback/blob/main/.pre-commit-config.yaml), [enphase-bridge](https://github.com/thedandano/enphase-bridge/tree/main/.githooks), and [the dashboard](https://github.com/thedandano/enphase-bridge-dashboard/tree/main/.husky).

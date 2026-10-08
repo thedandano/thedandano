@@ -285,6 +285,22 @@ def chart_summary(weeks: dict[date, Counter[str]]) -> str:
     )
 
 
+def chart_table(weeks: dict[date, Counter[str]]) -> str:
+    """The chart as a collapsed text table, so the weekly breakdown never depends on color."""
+    names = [name for name, _ in project_totals(weeks)]
+    if not names:
+        return ""
+    rows = [
+        f"| {short_date(week)} | " + " | ".join(str(counts[name]) for name in names) + " |"
+        for week, counts in weeks.items()
+        if counts
+    ]
+    header = "| Week of | " + " | ".join(names) + " |"
+    divider = "| --- |" + " ---: |" * len(names)
+    table = "\n".join([header, divider, *rows])
+    return f"<details>\n<summary>The same numbers as a table</summary>\n\n{table}\n\n</details>"
+
+
 def bar_step(week_count: int) -> int:
     """Width of one week's slot: as wide as fits, up to a cap."""
     return min((CHART_WIDTH - AXIS_WIDTH - RIGHT_PADDING) // max(week_count, 1), MAX_BAR_STEP)
@@ -412,6 +428,7 @@ def page_values(data: dict[str, Any], today: date) -> dict[str, str]:
         "chart_alt": escape(summary),
         "chart_width": str(CHART_WIDTH),
         "chart_summary": summary,
+        "chart_table": chart_table(weeks),
         "contact": contact_link(user),
         "outside_section": outside_section(outside_work(data["outside"]["nodes"])),
         "today": short_date(today),

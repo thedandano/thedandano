@@ -129,6 +129,17 @@ def test_page_values_are_everything_the_template_asks_for():
         "chart_alt": SUMMARY,
         "chart_width": "713",
         "chart_summary": SUMMARY,
+        "chart_table": (
+            "<details>\n"
+            "<summary>The same numbers as a table</summary>\n"
+            "\n"
+            "| Week of | callback | Solar stack | Other |\n"
+            "| --- | ---: | ---: | ---: |\n"
+            "| Sep 28, 2026 | 5 | 0 | 0 |\n"
+            "| Oct 5, 2026 | 0 | 1 | 1 |\n"
+            "\n"
+            "</details>"
+        ),
         "contact": "[Message me on LinkedIn](https://linkedin.com/in/sdedano)",
         "outside_section": "",
         "today": "Oct 8, 2026",
@@ -262,6 +273,7 @@ def test_chart_summary_says_so_when_there_is_no_merged_work():
     weeks = build.weekly_counts([], SINCE, TODAY)
 
     assert build.chart_summary(weeks) == "No merged pull requests in the last 12 months."
+    assert build.chart_table(weeks) == ""
 
 
 def test_languages_clause_disappears_without_languages():

@@ -1,93 +1,111 @@
-"""Rebuild the profile README and contribution calendar from live GitHub data."""
+"""Rebuild the profile README and its chart from live GitHub data.
+
+The wording lives in template.md. This script fills in the live numbers,
+draws the "where the work went" chart, and writes README.md.
+"""
 
 from __future__ import annotations
 
 import http.client
 import json
 import logging
+import math
 import os
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from html import escape
 from http import HTTPStatus
 from pathlib import Path
+from string import Template
 from typing import Any
+from urllib.parse import quote_plus
 
 LOGIN = "thedandano"
-ROLE = "AI and backend engineer"
-SUMMARY = "I build agent systems and the services behind them, mostly in Python and Rust."
+CALLBACK_URL = f"https://github.com/{LOGIN}/callback"
 
 API_HOST = "api.github.com"
 API_PATH = "/graphql"
 TIMEOUT_SECONDS = 30
 LOOKBACK_DAYS = 365
 ERROR_BODY_PREVIEW_CHARS = 300
+# ponytail: GitHub search hands back at most 1,000 results (10 pages of 100). Past that
+# the chart and language list go short and fetch() says so. Split the search by date
+# range if a year of merged work ever passes 1,000.
+MAX_EXTRA_PAGES = 9
 
-MAX_FALLBACK_REPOS = 4
 MAX_OUTSIDE_ITEMS = 6
 MAX_TITLE_CHARS = 80
-# ponytail: one page of 100 results per list, no paging. Add paging if a year of
-# outside work, or the list of public repos, ever passes 100.
+PAIR = 2  # two words join with "and" alone; three or more need commas
+MIN_LANGUAGE_PULLS = 5  # a language is named only with this many merged pull requests
 
+TEMPLATE_PATH = "template.md"
 README_PATH = "README.md"
-CALENDAR_PATHS = {"light": "assets/calendar-light.svg", "dark": "assets/calendar-dark.svg"}
+CHART_PATHS = {"light": "assets/work-light.svg", "dark": "assets/work-dark.svg"}
 
-CELL_SIZE = 10
-CELL_STEP = 13
-CELL_RADIUS = 2
-LABEL_HEIGHT = 16
-LABEL_BASELINE = 10
-LABEL_ROOM = 24
+# Chart series, in fixed order. Repos not listed here count as "Other".
+OTHER = "Other"
+SERIES = ("callback", "Solar stack", "World Cup Bar", OTHER)
+PROJECT_OF = {
+    f"{LOGIN}/callback": "callback",
+    f"{LOGIN}/enphase-bridge": "Solar stack",
+    f"{LOGIN}/enphase-bridge-dashboard": "Solar stack",
+    f"{LOGIN}/enphase-bridge-plugin": "Solar stack",
+    f"{LOGIN}/world-cup-kickoff-bar": "World Cup Bar",
+}
+# Series colors passed the dataviz palette validator on GitHub's light and dark
+# backgrounds. "Other" is a neutral gray on purpose. Text uses ink, never a series color.
+CHART_COLORS = {
+    "light": {
+        "series": ("#2a78d6", "#eb6834", "#1baf7a", "#8c959f"),
+        "ink": "#59636e",
+        "grid": "#d1d9e0",
+    },
+    "dark": {
+        "series": ("#3987e5", "#d95926", "#199e70", "#6e7681"),
+        "ink": "#9198a1",
+        "grid": "#3d444d",
+    },
+}
+
+CHART_WIDTH = 713
+MAX_BAR_STEP = 20
+BAR_GAP = 4
+RIGHT_PADDING = 20
+SEGMENT_GAP = 1
+BAR_RADIUS = 1
+AXIS_WIDTH = 24
+PLOT_TOP = 8
+PLOT_HEIGHT = 96
+MONTH_ROW_HEIGHT = 18
+LEGEND_ROW_HEIGHT = 22
+SWATCH_SIZE = 10
+LEGEND_CHAR_WIDTH = 6
+LEGEND_ITEM_PADDING = 30
+TICK_ROUNDING = 10
+LABEL_OFFSET = 4
+MIN_LABEL_GAP_COLUMNS = 2
 DAYS_PER_WEEK = 7
 FONT_STACK = "-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
 
-LEVELS = ("NONE", "FIRST_QUARTILE", "SECOND_QUARTILE", "THIRD_QUARTILE", "FOURTH_QUARTILE")
-# Colors come from DESIGN.md: five heat steps and a label color per theme.
-PALETTES = {
-    "light": {
-        "heat": ("#ebe8e2", "#f1d9a8", "#e3b25a", "#c4831a", "#8a5600"),
-        "label": "#6b655a",
-    },
-    "dark": {
-        "heat": ("#1c1f24", "#4a3410", "#80570f", "#b9801c", "#f0b452"),
-        "label": "#9c958a",
-    },
-}
-
 QUERY = """
-query($login: String!, $outside: String!) {
+query($login: String!, $merged: String!, $outside: String!, $cursor: String) {
   user(login: $login) {
-    name
-    location
-    websiteUrl
     socialAccounts(first: 10) { nodes { provider url } }
-    pinnedItems(first: 6, types: REPOSITORY) {
-      nodes { ... on Repository { ...repo } }
-    }
-    repositories(first: 100, ownerAffiliations: OWNER, privacy: PUBLIC, isFork: false,
-                 orderBy: {field: PUSHED_AT, direction: DESC}) {
-      nodes { ...repo }
-    }
-    contributionsCollection {
-      totalPullRequestContributions
-      restrictedContributionsCount
-      contributionCalendar {
-        totalContributions
-        weeks { contributionDays { date contributionLevel } }
-      }
-    }
   }
-  search(query: $outside, type: ISSUE, first: 100) {
-    nodes {
-      __typename
-      ... on PullRequest { title url state updatedAt repository { nameWithOwner isPrivate } }
-      ... on Issue { title url state updatedAt repository { nameWithOwner isPrivate } }
-    }
+  callback: repository(owner: $login, name: "callback") {
+    releases { totalCount }
+    latestRelease { tagName }
   }
-}
-fragment repo on Repository {
-  name url description isPrivate isArchived pushedAt primaryLanguage { name }
+  merged: search(query: $merged, type: ISSUE, first: 100, after: $cursor) {
+    issueCount
+    pageInfo { hasNextPage endCursor }
+    nodes { ... on PullRequest { mergedAt repository { nameWithOwner primaryLanguage { name } } } }
+  }
+  outside: search(query: $outside, type: ISSUE, first: 20) {
+    nodes { ... on PullRequest { title url repository { nameWithOwner isPrivate } } }
+  }
 }
 """
 
@@ -95,29 +113,20 @@ log = logging.getLogger("build")
 
 
 @dataclass(frozen=True)
-class Repo:
-    name: str
-    url: str
-    description: str
-    language: str
-    pushed: date | None
-
-
-@dataclass(frozen=True)
 class OutsideItem:
     title: str
     url: str
     project: str
-    kind: str
-    status: str
 
 
-def fetch(token: str, since: date) -> dict[str, Any]:
-    """Run the one GraphQL query the page needs and return its data."""
-    outside = (
-        f"author:{LOGIN} is:public -user:{LOGIN} created:>={since.isoformat()} sort:updated-desc"
-    )
-    payload = json.dumps({"query": QUERY, "variables": {"login": LOGIN, "outside": outside}})
+def merged_query(since: date) -> str:
+    """Search text for merged public pull requests; also used as the evidence link."""
+    return f"author:{LOGIN} is:pr is:merged is:public merged:>={since.isoformat()}"
+
+
+def graphql(token: str, variables: dict[str, Any]) -> dict[str, Any]:
+    """Send the page's one query to GitHub and return its data."""
+    payload = json.dumps({"query": QUERY, "variables": variables})
     headers = {"Authorization": f"Bearer {token}", "User-Agent": LOGIN}
     connection = http.client.HTTPSConnection(API_HOST, timeout=TIMEOUT_SECONDS)
     try:
@@ -137,68 +146,63 @@ def fetch(token: str, since: date) -> dict[str, Any]:
     return body["data"]
 
 
-def to_repo(node: dict[str, Any]) -> Repo:
-    return Repo(
-        name=node["name"],
-        url=node["url"],
-        description=node["description"] or "",
-        language=(node["primaryLanguage"] or {}).get("name", ""),
-        pushed=parse_day(node["pushedAt"]) if node["pushedAt"] else None,
-    )
-
-
-def parse_day(timestamp: str) -> date:
-    return datetime.fromisoformat(timestamp).date()
-
-
-def featured_repos(user: dict[str, Any]) -> list[Repo]:
-    """Pinned public repos, or the most recently active described repos if nothing is pinned."""
-    pins = [
-        to_repo(node) for node in user["pinnedItems"]["nodes"] if node and not node["isPrivate"]
-    ]
-    for repo in pins:
-        if not repo.description:
-            log.warning("Pinned repo %s has no description; showing its name only.", repo.name)
-    if pins:
-        return pins
-    log.warning("No public repos are pinned; falling back to the most recently active repos.")
-    recent = [
-        to_repo(node)
-        for node in user["repositories"]["nodes"]
-        if node["description"] and not node["isArchived"] and not node["isPrivate"]
-    ]
-    return recent[:MAX_FALLBACK_REPOS]
-
-
-def item_status(node: dict[str, Any]) -> str | None:
-    """Real status of a pull request or issue; None for anything the page must not show."""
-    state = node["state"]
-    if state in ("OPEN", "MERGED"):
-        return state.lower()
-    return None
+def fetch(token: str, since: date) -> dict[str, Any]:
+    """Fetch everything the page needs, following extra pages of merged pull requests."""
+    merged = merged_query(since)
+    variables = {
+        "login": LOGIN,
+        "merged": f"{merged} sort:updated-desc",
+        "outside": f"{merged} -user:{LOGIN} sort:updated-desc",
+        "cursor": None,
+    }
+    data = graphql(token, variables)
+    page = data["merged"]
+    for _ in range(MAX_EXTRA_PAGES):
+        if not page["pageInfo"]["hasNextPage"]:
+            break
+        page = graphql(token, variables | {"cursor": page["pageInfo"]["endCursor"]})["merged"]
+        data["merged"]["nodes"] += page["nodes"]
+    collected = len(data["merged"]["nodes"])
+    if collected < data["merged"]["issueCount"]:
+        log.warning(
+            "GitHub returned %d of %d merged pull requests; the chart and the language "
+            "list leave out the rest. The total count is still exact.",
+            collected,
+            data["merged"]["issueCount"],
+        )
+    return data
 
 
 def outside_work(nodes: list[dict[str, Any]]) -> list[OutsideItem]:
-    """Open or merged work in other people's public repos, newest first."""
-    kinds = {"PullRequest": "pull request", "Issue": "issue"}
-    shown = [
-        node
-        for node in nodes
-        if node.get("__typename") in kinds
-        and not node["repository"]["isPrivate"]
-        and item_status(node) is not None
-    ]
-    shown.sort(key=lambda node: node["updatedAt"], reverse=True)
+    """Merged pull requests in other people's public repos, newest first."""
     return [
         OutsideItem(
-            title=node["title"],
-            url=node["url"],
-            project=node["repository"]["nameWithOwner"],
-            kind=kinds[node["__typename"]],
-            status=item_status(node) or "",
+            title=node["title"], url=node["url"], project=node["repository"]["nameWithOwner"]
         )
-        for node in shown[:MAX_OUTSIDE_ITEMS]
+        for node in nodes
+        if node and not node["repository"]["isPrivate"]
+    ][:MAX_OUTSIDE_ITEMS]
+
+
+def languages(nodes: list[dict[str, Any]]) -> list[str]:
+    """Main languages of the repos behind the merged pull requests, most used first."""
+    names = [
+        node["repository"]["primaryLanguage"]["name"]
+        for node in nodes
+        if node and node["repository"]["primaryLanguage"]
     ]
+    return [name for name, count in Counter(names).most_common() if count >= MIN_LANGUAGE_PULLS]
+
+
+def languages_clause(names: list[str]) -> str:
+    """ ", across X, Y, and Z" for the sentence in template.md, or nothing without names."""
+    return f", across {word_list(names)}" if names else ""
+
+
+def word_list(words: list[str]) -> str:
+    if len(words) <= PAIR:
+        return " and ".join(words)
+    return f"{', '.join(words[:-1])}, and {words[-1]}"
 
 
 def md_text(text: str) -> str:
@@ -216,146 +220,245 @@ def short_date(day: date) -> str:
     return f"{day:%b} {day.day}, {day.year}"
 
 
-def with_scheme(url: str) -> str:
-    return url if "://" in url else f"https://{url}"
-
-
-def contact_links(user: dict[str, Any]) -> list[str]:
-    links = []
+def contact_link(user: dict[str, Any]) -> str:
     linkedin = next(
         (a["url"] for a in user["socialAccounts"]["nodes"] if a["provider"] == "LINKEDIN"), None
     )
     if linkedin:
-        links.append(f"[Message me on LinkedIn]({linkedin})")
-    else:
-        log.warning("No LinkedIn account on the GitHub profile; the page has no main contact link.")
-    if user["websiteUrl"]:
-        site = with_scheme(user["websiteUrl"])
-        links.append(f"[{site.split('://', 1)[1].rstrip('/')}]({site})")
-    return links
+        return f"[Message me on LinkedIn]({linkedin})"
+    log.warning("No LinkedIn account on the GitHub profile; the page has no contact link.")
+    return ""
 
 
-def calendar_alt(user: dict[str, Any]) -> str:
-    total = user["contributionsCollection"]["contributionCalendar"]["totalContributions"]
-    return f"Contribution calendar: {total:,} contributions in the last 12 months."
-
-
-def activity_line(user: dict[str, Any]) -> str:
-    """Contribution total (private work included when visible) and public pull requests."""
-    contributions = user["contributionsCollection"]
-    total = contributions["contributionCalendar"]["totalContributions"]
-    pull_requests = contributions["totalPullRequestContributions"]
-    private_note = (
-        ", counting private work" if contributions["restrictedContributionsCount"] else ""
-    )
-    return (
-        f"**{total:,}** contributions in the last 12 months{private_note}, "
-        f"and **{pull_requests:,}** public pull requests."
-    )
-
-
-def repo_row(repo: Repo) -> str:
-    updated = f"updated {short_date(repo.pushed)}" if repo.pushed else ""
-    facts = [f"**[{repo.name}]({repo.url})**", repo.language, updated]
-    heading = " · ".join(fact for fact in facts if fact)
-    return f"{heading}<br>\n{md_text(repo.description)}" if repo.description else heading
-
-
-def outside_row(item: OutsideItem) -> str:
-    title = md_text(shorten(item.title))
-    return f"- [{title}]({item.url}) · {item.project} · {item.kind}, {item.status}"
-
-
-def calendar_width(week_count: int) -> int:
-    return week_count * CELL_STEP + LABEL_ROOM
-
-
-def render_readme(user: dict[str, Any], outside: list[OutsideItem], today: date) -> str:
-    place = f" in {user['location']}" if user["location"] else ""
-    weeks = user["contributionsCollection"]["contributionCalendar"]["weeks"]
-    parts = [
-        f"# {user['name'] or LOGIN}",
-        f"{ROLE}{place}. {SUMMARY}",
-        " · ".join(contact_links(user)),
-        "<picture>\n"
-        f'  <source media="(prefers-color-scheme: dark)" srcset="{CALENDAR_PATHS["dark"]}">\n'
-        f'  <img src="{CALENDAR_PATHS["light"]}" alt="{escape(calendar_alt(user))}" '
-        f'width="{calendar_width(len(weeks))}">\n'
-        "</picture>",
-        activity_line(user),
-        "## Featured work",
-        "\n\n".join(repo_row(repo) for repo in featured_repos(user)),
+def outside_section(items: list[OutsideItem]) -> str:
+    """A list of merged outside work, or nothing when there is none."""
+    if not items:
+        return ""
+    rows = [
+        f"- [{md_text(shorten(item.title))}]({item.url}) · {item.project} · merged"
+        for item in items
     ]
-    if outside:
-        parts += ["## Open-source work", "\n".join(outside_row(item) for item in outside)]
-    parts.append(
-        f"<sub>Rebuilt daily by [a script in this repo](build.py). "
-        f"Last run {short_date(today)}.</sub>"
+    return "## Merged in other projects\n\n" + "\n".join(rows)
+
+
+def week_start(day: date) -> date:
+    return day - timedelta(days=day.weekday())
+
+
+def weekly_counts(
+    nodes: list[dict[str, Any]], since: date, today: date
+) -> dict[date, Counter[str]]:
+    """Merged pull requests per week (Monday start) and project, oldest week first.
+
+    Starts at the first week with merged work, so the chart has no empty lead-in.
+    """
+    merged_days = [datetime.fromisoformat(node["mergedAt"]).date() for node in nodes if node]
+    first = week_start(max(min(merged_days, default=today), since))
+    week_count = (week_start(today) - first).days // DAYS_PER_WEEK + 1
+    weeks: dict[date, Counter[str]] = {
+        first + timedelta(weeks=index): Counter() for index in range(week_count)
+    }
+    for node in nodes:
+        if not node:
+            continue
+        week = week_start(datetime.fromisoformat(node["mergedAt"]).date())
+        if week in weeks:
+            weeks[week][PROJECT_OF.get(node["repository"]["nameWithOwner"], OTHER)] += 1
+    return weeks
+
+
+def project_totals(weeks: dict[date, Counter[str]]) -> list[tuple[str, int]]:
+    """Total per series, in series order, leaving out series with no work."""
+    totals = sum(weeks.values(), Counter())
+    return [(name, totals[name]) for name in SERIES if totals[name]]
+
+
+def chart_summary(weeks: dict[date, Counter[str]]) -> str:
+    """The chart's numbers as a sentence, so nobody has to read them off the picture."""
+    parts = [f"{name} {count}" for name, count in project_totals(weeks)]
+    if not parts:
+        return "No merged pull requests in the last 12 months."
+    since = next(iter(weeks))
+    return (
+        f"Merged pull requests by week since {since:%b %Y}. "
+        f"Totals, in the order the bars stack from the bottom: {', '.join(parts)}."
     )
-    return "\n\n".join(part for part in parts if part) + "\n"
 
 
-def month_labels(weeks: list[dict[str, Any]], color: str) -> list[str]:
-    """One label above the first column of each new month."""
+def chart_table(weeks: dict[date, Counter[str]]) -> str:
+    """The chart as a collapsed text table, so the weekly breakdown never depends on color."""
+    names = [name for name, _ in project_totals(weeks)]
+    if not names:
+        return ""
+    rows = [
+        f"| {short_date(week)} | " + " | ".join(str(counts[name]) for name in names) + " |"
+        for week, counts in weeks.items()
+        if counts
+    ]
+    header = "| Week of | " + " | ".join(names) + " |"
+    divider = "| --- |" + " ---: |" * len(names)
+    table = "\n".join([header, divider, *rows])
+    return f"<details>\n<summary>The same numbers as a table</summary>\n\n{table}\n\n</details>"
+
+
+def bar_step(week_count: int) -> int:
+    """Width of one week's slot: as wide as fits, up to a cap."""
+    return min((CHART_WIDTH - AXIS_WIDTH - RIGHT_PADDING) // max(week_count, 1), MAX_BAR_STEP)
+
+
+def axis_top(weeks: dict[date, Counter[str]]) -> int:
+    """Top of the y-axis: the busiest week, rounded up to a round number."""
+    peak = max((sum(counts.values()) for counts in weeks.values()), default=0)
+    return max(math.ceil(peak / TICK_ROUNDING), 1) * TICK_ROUNDING
+
+
+def grid_lines(top: int, colors: dict[str, Any]) -> list[str]:
+    """Faint lines and labels at the top and middle of the y-axis, plus the baseline."""
+    lines = []
+    for value in (top, top // 2, 0):
+        y = PLOT_TOP + PLOT_HEIGHT - value * PLOT_HEIGHT / top
+        lines.append(
+            f'<line x1="{AXIS_WIDTH}" y1="{y:g}" x2="{CHART_WIDTH}" y2="{y:g}" '
+            f'stroke="{colors["grid"]}" stroke-width="1"/>'
+        )
+        lines.append(
+            f'<text x="{AXIS_WIDTH - LABEL_OFFSET}" y="{y + LABEL_OFFSET:g}" '
+            f'text-anchor="end" fill="{colors["ink"]}">{value}</text>'
+        )
+    return lines
+
+
+def bars(weeks: dict[date, Counter[str]], top: int, colors: dict[str, Any]) -> list[str]:
+    """One stacked bar per week, with a thin gap between projects."""
+    rects = []
+    unit = PLOT_HEIGHT / top
+    step = bar_step(len(weeks))
+    for column, counts in enumerate(weeks.values()):
+        y = PLOT_TOP + PLOT_HEIGHT
+        for name, fill in zip(SERIES, colors["series"], strict=True):
+            height = counts[name] * unit
+            if not height:
+                continue
+            y -= height
+            rects.append(
+                f'<rect x="{AXIS_WIDTH + column * step}" y="{y:g}" width="{step - BAR_GAP}" '
+                f'height="{max(height - SEGMENT_GAP, 1):g}" rx="{BAR_RADIUS}" fill="{fill}"/>'
+            )
+    return rects
+
+
+def month_labels(weeks: dict[date, Counter[str]], colors: dict[str, Any]) -> list[str]:
+    """A month name under the first week shown and under each new month after it.
+
+    A new month too close to the previous label is skipped so names never overlap.
+    """
     labels = []
     previous_month = None
+    last_labeled = -MIN_LABEL_GAP_COLUMNS
+    y = PLOT_TOP + PLOT_HEIGHT + MONTH_ROW_HEIGHT - LABEL_OFFSET
     for column, week in enumerate(weeks):
-        first_day = date.fromisoformat(week["contributionDays"][0]["date"])
-        if previous_month is not None and first_day.month != previous_month:
-            labels.append(
-                f'<text x="{column * CELL_STEP}" y="{LABEL_BASELINE}" fill="{color}">'
-                f"{first_day:%b}</text>"
-            )
-        previous_month = first_day.month
+        if week.month != previous_month and column - last_labeled >= MIN_LABEL_GAP_COLUMNS:
+            x = AXIS_WIDTH + column * bar_step(len(weeks))
+            labels.append(f'<text x="{x}" y="{y}" fill="{colors["ink"]}">{week:%b}</text>')
+            last_labeled = column
+        previous_month = week.month
     return labels
 
 
-def render_calendar(user: dict[str, Any], theme: str) -> str:
-    """Draw the contribution calendar as an SVG with a transparent background."""
-    palette = PALETTES[theme]
-    weeks = user["contributionsCollection"]["contributionCalendar"]["weeks"]
-    cells = []
-    for column, week in enumerate(weeks):
-        for day in week["contributionDays"]:
-            row = date.fromisoformat(day["date"]).isoweekday() % DAYS_PER_WEEK
-            fill = palette["heat"][LEVELS.index(day["contributionLevel"])]
-            cells.append(
-                f'<rect x="{column * CELL_STEP}" y="{LABEL_HEIGHT + row * CELL_STEP}" '
-                f'width="{CELL_SIZE}" height="{CELL_SIZE}" rx="{CELL_RADIUS}" fill="{fill}"/>'
-            )
-    width = calendar_width(len(weeks))
-    height = LABEL_HEIGHT + DAYS_PER_WEEK * CELL_STEP
+def legend(weeks: dict[date, Counter[str]], colors: dict[str, Any]) -> list[str]:
+    """A swatch and a name for each project that has work in the chart."""
+    items = []
+    x = AXIS_WIDTH
+    y = PLOT_TOP + PLOT_HEIGHT + MONTH_ROW_HEIGHT + LABEL_OFFSET
+    shown = {name for name, _ in project_totals(weeks)}
+    for name, fill in zip(SERIES, colors["series"], strict=True):
+        if name not in shown:
+            continue
+        items.append(
+            f'<rect x="{x}" y="{y}" width="{SWATCH_SIZE}" height="{SWATCH_SIZE}" '
+            f'rx="{BAR_RADIUS}" fill="{fill}"/>'
+        )
+        items.append(
+            f'<text x="{x + SWATCH_SIZE + LABEL_OFFSET}" y="{y + SWATCH_SIZE - 1}" '
+            f'fill="{colors["ink"]}">{escape(name)}</text>'
+        )
+        x += len(name) * LEGEND_CHAR_WIDTH + LEGEND_ITEM_PADDING
+    return items
+
+
+def render_chart(weeks: dict[date, Counter[str]], theme: str) -> str:
+    """Draw merged pull requests per week by project as an SVG with no background."""
+    colors = CHART_COLORS[theme]
+    top = axis_top(weeks)
+    width = CHART_WIDTH
+    height = PLOT_TOP + PLOT_HEIGHT + MONTH_ROW_HEIGHT + LEGEND_ROW_HEIGHT
     lines = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}" role="img" font-family="{FONT_STACK}" font-size="10">',
-        f"<title>{escape(calendar_alt(user))}</title>",
-        *month_labels(weeks, palette["label"]),
-        *cells,
+        f"<title>{escape(chart_summary(weeks))}</title>",
+        *grid_lines(top, colors),
+        *bars(weeks, top, colors),
+        *month_labels(weeks, colors),
+        *legend(weeks, colors),
         "</svg>",
     ]
     return "\n".join(lines) + "\n"
 
 
-def build(data: dict[str, Any], today: date) -> dict[str, str]:
-    """Turn API data into the files to write, keyed by path. No I/O."""
+def page_values(data: dict[str, Any], today: date) -> dict[str, str]:
+    """Every value template.md asks for. No I/O."""
     user = data["user"]
     if user is None:
         raise RuntimeError(f"GitHub has no user named {LOGIN!r}.")
-    files = {README_PATH: render_readme(user, outside_work(data["search"]["nodes"]), today)}
-    for theme, path in CALENDAR_PATHS.items():
-        files[path] = render_calendar(user, theme)
+    callback = data["callback"]
+    if callback is None or callback["latestRelease"] is None:
+        raise RuntimeError(f"Could not read releases for {CALLBACK_URL}; was the repo renamed?")
+    since = today - timedelta(days=LOOKBACK_DAYS)
+    merged = data["merged"]
+    weeks = weekly_counts(merged["nodes"], since, today)
+    summary = chart_summary(weeks)
+    return {
+        "merged_count": f"{merged['issueCount']:,}",
+        "merged_url": (
+            f"https://github.com/search?q={quote_plus(merged_query(since))}&type=pullrequests"
+        ),
+        "languages_clause": languages_clause(languages(merged["nodes"])),
+        "release_count": str(callback["releases"]["totalCount"]),
+        "latest_release": callback["latestRelease"]["tagName"],
+        "chart_alt": escape(summary),
+        "chart_width": str(CHART_WIDTH),
+        "chart_summary": summary,
+        "chart_table": chart_table(weeks),
+        "contact": contact_link(user),
+        "outside_section": outside_section(outside_work(data["outside"]["nodes"])),
+        "today": short_date(today),
+    }
+
+
+def build(data: dict[str, Any], today: date, template: str) -> dict[str, str]:
+    """Turn API data and the template into the files to write, keyed by path. No I/O."""
+    try:
+        page = Template(template).substitute(page_values(data, today))
+    except KeyError as error:
+        raise RuntimeError(
+            f"{TEMPLATE_PATH} asks for {error}, which build.py does not provide."
+        ) from error
+    files = {README_PATH: re.sub(r"\n{3,}", "\n\n", page)}
+    weeks = weekly_counts(data["merged"]["nodes"], today - timedelta(days=LOOKBACK_DAYS), today)
+    for theme, path in CHART_PATHS.items():
+        files[path] = render_chart(weeks, theme)
     return files
 
 
-def main() -> None:
+def main(root: Path) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
         raise SystemExit("GITHUB_TOKEN is not set. Export a GitHub token and run again.")
     today = datetime.now(UTC).date()
-    files = build(fetch(token, today - timedelta(days=LOOKBACK_DAYS)), today)
-    root = Path(__file__).parent
-    for path, content in files.items():
+    template = (root / TEMPLATE_PATH).read_text(encoding="utf-8")
+    data = fetch(token, today - timedelta(days=LOOKBACK_DAYS))
+    for path, content in build(data, today, template).items():
         target = root / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
@@ -363,4 +466,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main(Path(__file__).parent)

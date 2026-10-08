@@ -1,31 +1,26 @@
 ---
 name: thedandano profile page
-description: A quiet, self-updating GitHub profile page for recruiters and hiring managers.
+description: A bold, self-updating GitHub profile page that says who Dan is and proves it.
 colors:
-  amber-ink: "#8a5600"
-  amber-ink-dark: "#f0b452"
-  muted-ink: "#6b655a"
-  muted-ink-dark: "#9c958a"
-  heat-0: "#ebe8e2"
-  heat-1: "#f1d9a8"
-  heat-2: "#e3b25a"
-  heat-3: "#c4831a"
-  heat-4: "#8a5600"
-  heat-0-dark: "#1c1f24"
-  heat-1-dark: "#4a3410"
-  heat-2-dark: "#80570f"
-  heat-3-dark: "#b9801c"
-  heat-4-dark: "#f0b452"
+  series-callback: "#2a78d6"
+  series-callback-dark: "#3987e5"
+  series-solar: "#eb6834"
+  series-solar-dark: "#d95926"
+  series-world-cup-bar: "#1baf7a"
+  series-world-cup-bar-dark: "#199e70"
+  series-other: "#8c959f"
+  series-other-dark: "#6e7681"
+  chart-ink: "#59636e"
+  chart-ink-dark: "#9198a1"
+  chart-grid: "#d1d9e0"
+  chart-grid-dark: "#3d444d"
 typography:
   label:
     fontFamily: "-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
     fontSize: "10px"
     fontWeight: 400
 rounded:
-  cell: "2px"
-spacing:
-  cell: "10px"
-  cell-gap: "3px"
+  bar: "1px"
 ---
 
 # Design System: thedandano profile page
@@ -34,78 +29,82 @@ spacing:
 
 **Creative North Star: "The One-Page Resume"**
 
-The page reads like a well-set one-page resume that happens to live on GitHub. It is mostly plain text, set by GitHub's own stylesheet. A single picture, the contribution calendar, carries the only color on the page.
+The page reads like a well-set resume that happens to live on GitHub. It is bold in what it claims and plain in how it looks. Almost all of it is text, set by GitHub's own stylesheet.
 
-GitHub strips all CSS and scripts from a profile README, so this system has two materials only: Markdown text and SVG images drawn by the daily build. Each image ships in a light and a dark version and follows the reader's GitHub theme. Neither theme is the default.
+GitHub's profile page already shows the name, location, links, pinned repos, and the contribution calendar. The README repeats none of them. It says who Dan is, and every claim links to something a reader can check.
+
+GitHub strips all CSS and scripts from a profile README, so the page has two materials only: Markdown text and one chart that the daily build draws as an SVG.
 
 This system rejects badge walls, star counts, "top languages" charts, third-party stat widgets, emoji headings, and animated typing banners.
 
 **Key Characteristics:**
-- Text first. Numbers and links are real text, never baked into a picture.
-- One accent hue (amber), used only in the calendar.
-- Reading order: who, activity, featured work, open-source work, footer.
-- No motion.
+- Reading order: headline, three taglines, what I build, where the work went, how I work, away from the keyboard, contact link, footer.
+- The headline and taglines fit on the first screen. A 20-second reader gets the point without scrolling.
+- One chart. It is the only color on the page.
+- The wording lives in `template.md`. Live numbers are filled in by `build.py`.
 
 ## 2. Colors
 
-One warm amber on GitHub's own neutrals.
+Color appears only in the chart. Each project keeps one fixed color.
 
 ### Primary
-- **Amber Ink** (`amber-ink`, `amber-ink-dark`): the strongest calendar cell. Amber separates the page from GitHub's default green without shouting.
+- **callback blue** (`series-callback`), **solar orange** (`series-solar`), **World Cup Bar aqua** (`series-world-cup-bar`): one hue per project story, always in this order.
 
 ### Neutral
-- **Muted Ink** (`muted-ink`, `muted-ink-dark`): month labels in the calendar.
-- **Heat ramp** (`heat-0` to `heat-4`, light and dark): five calendar steps, from an empty day to the busiest day.
+- **Other gray** (`series-other`): everything that is not one of the three stories.
+- **Chart ink** (`chart-ink`) and **chart grid** (`chart-grid`): axis text, legend text, and faint grid lines.
 
 ### Named Rules
-**The One Hue Rule.** Amber appears in the calendar and nowhere else. Body text and links keep GitHub's own colors.
+**The Validated Palette Rule.** Series colors must pass the dataviz palette validator on GitHub's light (`#ffffff`) and dark (`#0d1117`) backgrounds before they ship.
 
-**The Transparent Ground Rule.** Images have no background. They sit on whatever theme the reader uses.
+**The Ink For Text Rule.** Chart text is ink, never a series color. A colored swatch beside it carries the identity.
+
+**The Transparent Ground Rule.** The chart has no background. It sits on whatever theme the reader uses.
 
 ## 3. Typography
 
 **Body Font:** GitHub's README stack (not ours to set).
-**Label Font:** system sans stack, inside SVG only.
-
-**Character:** Plain and unstyled on purpose. The writing does the work.
+**Label Font:** system sans stack, inside the chart only.
 
 ### Hierarchy
-- **Display** (README `h1`): the name. Used once.
-- **Headline** (README `h2`): section names. Two at most.
-- **Body**: one to two short sentences per item.
-- **Label** (400, 10px): month names inside the calendar.
+- **Display** (README `h1`): the headline claim. Used once.
+- **Headline** (README `h2`): four section names.
+- **Body**: one short paragraph per claim, opening with its subject in bold.
+- **Label** (400, 10px): axis, month, and legend text in the chart.
 
 ### Named Rules
-**The No Baked Text Rule.** A fact a recruiter might copy or search for is never drawn into an image.
+**The No Baked Text Rule.** A fact a reader might copy or search for is never only in the picture. The chart's numbers are also written as a sentence under it.
 
 ## 4. Elevation
 
-Flat. No shadows, borders, or cards. Depth comes from spacing and reading order.
+Flat. No shadows, borders, or cards.
 
 ## 5. Components
 
-### Contribution calendar
-- **Shape:** 53 columns of 7 square cells (10px, 3px gap, 2px corner radius).
-- **Color:** the heat ramp for the active theme.
-- **Labels:** month names above the columns in Muted Ink.
-- **Alt text:** states the total, so the picture is never the only source.
+### Claim
+- **Style:** the subject in bold, then one to three sentences with links to the evidence. Numbers come live from GitHub.
 
-### Featured work row
-- **Style:** bold linked repo name, language, last updated date, then the repo's own one-line description. Plain Markdown, no card.
+### Work chart
+- **Shape:** one stacked bar per week, starting at the first week with merged work. Thin gap between projects, 1px corner radius.
+- **Axis:** three faint grid lines with labels, month names below, legend at the bottom.
+- **Themes:** a light and a dark file, swapped by the reader's GitHub theme.
+- **Alt text and caption:** the same totals the chart shows.
+- **Table view:** a collapsed table under the chart lists every week by project, so the breakdown never depends on color.
 
-### Open-source item
-- **Style:** linked title, project name, kind, and real status ("open" or "merged").
+### Merged outside work
+- **Style:** linked title and project name. The section appears only when a pull request in someone else's public GitHub repo has merged.
 
 ## 6. Do's and Don'ts
 
 ### Do:
-- **Do** label every outside pull request and issue with its real status.
-- **Do** ship every image in a light and a dark version.
-- **Do** give every image alt text that states the same fact as the picture.
+- **Do** back every claim with a link to merged or landed work.
+- **Do** keep personal lines in Dan's own words.
+- **Do** change featured repos by pinning them on GitHub, not by editing this repo.
 
 ### Don't:
+- **Don't** repeat anything the profile page already shows: name, location, links, pinned repos, the contribution calendar.
 - **Don't** add badge walls or rows of shield icons.
 - **Don't** show star counts, "top languages" charts, or third-party stat widgets.
 - **Don't** use emoji headings, waving hands, or animated typing banners.
-- **Don't** show closed, unmerged pull requests, or star counts of projects where nothing has merged.
-- **Don't** name a private repo anywhere, including in alt text and logs.
+- **Don't** use open or closed-unmerged pull requests as evidence, or star counts of projects where nothing has merged.
+- **Don't** name a private repo anywhere, including in logs.

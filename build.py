@@ -27,6 +27,8 @@ ERROR_BODY_PREVIEW_CHARS = 300
 MAX_FALLBACK_REPOS = 4
 MAX_OUTSIDE_ITEMS = 6
 MAX_TITLE_CHARS = 80
+# ponytail: one page of 100 results per list, no paging. Add paging if a year of
+# outside work, or the list of public repos, ever passes 100.
 
 README_PATH = "README.md"
 CALENDAR_PATHS = {"light": "assets/calendar-light.svg", "dark": "assets/calendar-dark.svg"}
@@ -63,7 +65,7 @@ query($login: String!, $outside: String!) {
     pinnedItems(first: 6, types: REPOSITORY) {
       nodes { ... on Repository { ...repo } }
     }
-    repositories(first: 20, ownerAffiliations: OWNER, privacy: PUBLIC, isFork: false,
+    repositories(first: 100, ownerAffiliations: OWNER, privacy: PUBLIC, isFork: false,
                  orderBy: {field: PUSHED_AT, direction: DESC}) {
       nodes { ...repo }
     }
@@ -76,7 +78,7 @@ query($login: String!, $outside: String!) {
       }
     }
   }
-  search(query: $outside, type: ISSUE, first: 30) {
+  search(query: $outside, type: ISSUE, first: 100) {
     nodes {
       __typename
       ... on PullRequest { title url state updatedAt repository { nameWithOwner isPrivate } }
@@ -98,7 +100,7 @@ class Repo:
     url: str
     description: str
     language: str
-    pushed: date
+    pushed: date | None
 
 
 @dataclass(frozen=True)
@@ -112,7 +114,9 @@ class OutsideItem:
 
 def fetch(token: str, since: date) -> dict[str, Any]:
     """Run the one GraphQL query the page needs and return its data."""
-    outside = f"author:{LOGIN} is:public -user:{LOGIN} created:>={since.isoformat()}"
+    outside = (
+        f"author:{LOGIN} is:public -user:{LOGIN} created:>={since.isoformat()} sort:updated-desc"
+    )
     payload = json.dumps({"query": QUERY, "variables": {"login": LOGIN, "outside": outside}})
     headers = {"Authorization": f"Bearer {token}", "User-Agent": LOGIN}
     connection = http.client.HTTPSConnection(API_HOST, timeout=TIMEOUT_SECONDS)
@@ -139,7 +143,7 @@ def to_repo(node: dict[str, Any]) -> Repo:
         url=node["url"],
         description=node["description"] or "",
         language=(node["primaryLanguage"] or {}).get("name", ""),
-        pushed=parse_day(node["pushedAt"]),
+        pushed=parse_day(node["pushedAt"]) if node["pushedAt"] else None,
     )
 
 
@@ -237,6 +241,7 @@ def calendar_alt(user: dict[str, Any]) -> str:
 
 
 def activity_line(user: dict[str, Any]) -> str:
+    """Contribution total (private work included when visible) and public pull requests."""
     contributions = user["contributionsCollection"]
     total = contributions["contributionCalendar"]["totalContributions"]
     pull_requests = contributions["totalPullRequestContributions"]
@@ -244,13 +249,14 @@ def activity_line(user: dict[str, Any]) -> str:
         ", counting private work" if contributions["restrictedContributionsCount"] else ""
     )
     return (
-        f"**{total:,}** contributions and **{pull_requests:,}** pull requests "
-        f"in the last 12 months{private_note}."
+        f"**{total:,}** contributions in the last 12 months{private_note}, "
+        f"and **{pull_requests:,}** public pull requests."
     )
 
 
 def repo_row(repo: Repo) -> str:
-    facts = [f"**[{repo.name}]({repo.url})**", repo.language, f"updated {short_date(repo.pushed)}"]
+    updated = f"updated {short_date(repo.pushed)}" if repo.pushed else ""
+    facts = [f"**[{repo.name}]({repo.url})**", repo.language, updated]
     heading = " · ".join(fact for fact in facts if fact)
     return f"{heading}<br>\n{md_text(repo.description)}" if repo.description else heading
 

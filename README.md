@@ -6,10 +6,10 @@ AI and backend engineer in San Diego, CA. I build agent systems and the services
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/calendar-dark.svg">
-  <img src="assets/calendar-light.svg" alt="Contribution calendar: 2,682 contributions in the last 12 months." width="713">
+  <img src="assets/calendar-light.svg" alt="Contribution calendar: 2,683 contributions in the last 12 months." width="713">
 </picture>
 
-**2,682** contributions and **153** pull requests in the last 12 months, counting private work.
+**2,683** contributions in the last 12 months, counting private work, and **154** public pull requests.
 
 ## Featured work
 

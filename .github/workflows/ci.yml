@@ -29,4 +29,4 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           uv run python build.py
-          grep -n "contributions and" README.md
+          grep -n "contributions in the last" README.md

@@ -149,6 +149,14 @@ def test_outside_work_keeps_only_open_or_merged_public_items_newest_first():
     ]
 
 
+def test_repo_row_skips_the_date_for_a_repo_that_was_never_pushed():
+    repo = build.to_repo(repo_node("empty", pushedAt=None))
+
+    assert build.repo_row(repo) == (
+        "**[empty](https://github.com/thedandano/empty)** · Python<br>\nAbout empty"
+    )
+
+
 def test_md_text_escapes_markdown_and_html():
     assert build.md_text("[AMD] fix a_b <tag> & `x`") == r"\[AMD\] fix a\_b &lt;tag&gt; &amp; \`x\`"
 
@@ -184,8 +192,8 @@ def test_render_readme_full_page():
         'contributions in the last 12 months." width="50">\n'
         "</picture>\n"
         "\n"
-        "**2,680** contributions and **153** pull requests in the last 12 months, "
-        "counting private work.\n"
+        "**2,680** contributions in the last 12 months, counting private work, "
+        "and **153** public pull requests.\n"
         "\n"
         "## Featured work\n"
         "\n"

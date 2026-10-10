@@ -2,7 +2,7 @@
 
 **Tenacious.** In [callback](https://github.com/thedandano/callback), a test case that had always passed suddenly failed. I re-ran it twice against the old version to prove the cause was the AI model's randomness and not my change. [I wrote it down in the repo.](https://github.com/thedandano/callback/blob/1be24db29568d6c5ed2a65221f0be361abcd1920/CLAUDE.md#L83-L94)
 
-**Action oriented.** [125 merged pull requests](https://github.com/search?q=author%3Athedandano+is%3Apr+is%3Amerged+is%3Apublic+merged%3A%3E%3D2025-10-09&type=pullrequests) in public repos in the last 12 months, across Python, Rust, TypeScript, and Swift. [callback](https://github.com/thedandano/callback/releases) has shipped 19 releases, most recently v1.8.0.
+**Action oriented.** [126 merged pull requests](https://github.com/search?q=author%3Athedandano+is%3Apr+is%3Amerged+is%3Apublic+merged%3A%3E%3D2025-10-10&type=pullrequests) in public repos in the last 12 months, across Python, Rust, TypeScript, and Swift. [callback](https://github.com/thedandano/callback/releases) has shipped 19 releases, most recently v1.8.0.
 
 **Pragmatic.** callback [grades resumes with plain rules](https://github.com/thedandano/callback/blob/main/callback/scorer.py), not another AI call, so the same resume always gets the same score. [enphase-bridge](https://github.com/thedandano/enphase-bridge) keeps solar data in one SQLite file and is small enough to run on a Raspberry Pi.
 
@@ -18,10 +18,10 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/work-dark.svg">
-  <img src="assets/work-light.svg" alt="Merged pull requests by week since Feb 2026. Totals, in the order the bars stack from the bottom: callback 74, Solar stack 40, World Cup Bar 5, Other 6." width="713">
+  <img src="assets/work-light.svg" alt="Merged pull requests by week since Feb 2026. Totals, in the order the bars stack from the bottom: callback 75, Solar stack 40, World Cup Bar 5, Other 6." width="713">
 </picture>
 
-Merged pull requests by week since Feb 2026. Totals, in the order the bars stack from the bottom: callback 74, Solar stack 40, World Cup Bar 5, Other 6.
+Merged pull requests by week since Feb 2026. Totals, in the order the bars stack from the bottom: callback 75, Solar stack 40, World Cup Bar 5, Other 6.
 
 <details>
 <summary>The same numbers as a table</summary>
@@ -47,7 +47,7 @@ Merged pull requests by week since Feb 2026. Totals, in the order the bars stack
 | Sep 7, 2026 | 2 | 0 | 0 | 0 |
 | Sep 21, 2026 | 17 | 1 | 0 | 0 |
 | Sep 28, 2026 | 5 | 1 | 0 | 0 |
-| Oct 5, 2026 | 0 | 3 | 0 | 2 |
+| Oct 5, 2026 | 1 | 3 | 0 | 2 |
 
 </details>
 
@@ -69,4 +69,4 @@ Merged pull requests by week since Feb 2026. Totals, in the order the bars stack
 
 [Message me on LinkedIn](https://linkedin.com/in/sdedano)
 
-<sub>Rebuilt daily by [a script in this repo](build.py). Last run Oct 9, 2026.</sub>
+<sub>Rebuilt daily by [a script in this repo](build.py). Last run Oct 10, 2026.</sub>

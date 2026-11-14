@@ -2,7 +2,7 @@
 
 **Tenacious.** In [callback](https://github.com/thedandano/callback), a test case that had always passed suddenly failed. I re-ran it twice against the old version to prove the cause was the AI model's randomness and not my change. [I wrote it down in the repo.](https://github.com/thedandano/callback/blob/1be24db29568d6c5ed2a65221f0be361abcd1920/CLAUDE.md#L83-L94)
 
-**Action oriented.** [150 merged pull requests](https://github.com/search?q=author%3Athedandano+is%3Apr+is%3Amerged+is%3Apublic+merged%3A%3E%3D2025-11-13&type=pullrequests) in public repos in the last 12 months, across Python, Rust, Swift, and TypeScript. [callback](https://github.com/thedandano/callback/releases) has shipped 19 releases, most recently v1.8.0.
+**Action oriented.** [150 merged pull requests](https://github.com/search?q=author%3Athedandano+is%3Apr+is%3Amerged+is%3Apublic+merged%3A%3E%3D2025-11-14&type=pullrequests) in public repos in the last 12 months, across Python, Rust, Swift, and TypeScript. [callback](https://github.com/thedandano/callback/releases) has shipped 19 releases, most recently v1.8.0.
 
 **Pragmatic.** callback [grades resumes with plain rules](https://github.com/thedandano/callback/blob/main/callback/scorer.py), not another AI call, so the same resume always gets the same score. [enphase-bridge](https://github.com/thedandano/enphase-bridge) keeps solar data in one SQLite file and is small enough to run on a Raspberry Pi.
 
@@ -76,4 +76,4 @@ Merged pull requests by week since Feb 2026. Totals, in the order the bars stack
 
 - [fix(auto-start): respect weekly limits before creating sessions](https://github.com/hamed-elfayome/Claude-Usage-Tracker/pull/349) · hamed-elfayome/Claude-Usage-Tracker · merged
 
-<sub>Rebuilt daily by [a script in this repo](build.py). Last run Nov 13, 2026.</sub>
+<sub>Rebuilt daily by [a script in this repo](build.py). Last run Nov 14, 2026.</sub>
